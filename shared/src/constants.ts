@@ -24,7 +24,7 @@ export const GAME_CONFIG = {
   OPP_DIR_PENALTY: 0.6,         // 반대 방향 이동 패널티 배율
 
   // 전투
-  ATTACK_DAMAGE: 15,
+  ATTACK_DAMAGE: 12,            // 문서 기준값 (플레이테스트로 수정 예정)
   ATTACK_WINDUP: 0.15,          // 선딜 (초)
   ATTACK_ACTIVE: 0.1,           // 히트박스 활성 시간 (초)
   ATTACK_RECOVERY: 0.35,        // 후딜 (초)

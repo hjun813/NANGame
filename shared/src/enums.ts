@@ -26,8 +26,8 @@ export enum FighterState {
 // 팀 링크 상태
 // ─────────────────────────────────────────
 export enum LinkState {
-  NORMAL = 'NORMAL',         // 팔짱 (기본, 최대 1.8m)
-  HOLD = 'HOLD',             // 손잡기 (Space, 최대 4m, 5초간)
+  ARM_LOCK = 'ARM_LOCK',     // 팔짱 (기본, 최대 1.8m)
+  HAND_HOLD = 'HAND_HOLD',   // 손잡기 (Space, 최대 4m, 5초간)
   STRETCHED = 'STRETCHED',   // 최대 거리 근접 상태 (시각 경고)
 }
 
