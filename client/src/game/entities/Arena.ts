@@ -55,6 +55,9 @@ export class Arena {
   public linkState: LinkState = LinkState.ARM_LOCK;
   public linkTensionState: LinkTensionState = LinkTensionState.RELAXED;
   public linkDistance = 0;
+  public maxObservedLinkDistance = 0;
+  public linkViolationFrames = 0;
+  public linkCorrectionFrames = 0;
   public physicsCollisionCount = 0;
 
   private constructor(scene: THREE.Scene, physics: PhysicsWorld) {
@@ -96,6 +99,8 @@ export class Arena {
     ]);
     const linkMat = new THREE.LineBasicMaterial({ color: 0xffd54f, linewidth: 2 });
     this.linkLine = new THREE.Line(linkGeo, linkMat);
+    // 매 프레임 이동하는 선의 오래된 bounding sphere로 인한 오검출을 방지한다.
+    this.linkLine.frustumCulled = false;
     scene.add(this.linkLine);
   }
 
@@ -138,6 +143,7 @@ export class Arena {
       deltaB,
       maxDist
     );
+    if (result.wasConstrained) this.linkCorrectionFrames++;
 
     // Rapier character controller가 벽/바닥/다른 캡슐과 충돌 가능한 이동량을 계산한다.
     this.physics.beginStep();
@@ -157,6 +163,13 @@ export class Arena {
 
     // 링크 상태와 별개로 거리 기반 장력 상태 판정
     this.linkDistance = vec3Distance(this.fighterA.position, this.fighterB.position);
+    this.maxObservedLinkDistance = Math.max(
+      this.maxObservedLinkDistance,
+      this.linkDistance,
+    );
+    if (this.linkDistance > maxDist + 0.001) {
+      this.linkViolationFrames++;
+    }
     const distanceRatio = this.linkDistance / maxDist;
     if (result.wasConstrained) {
       this.linkTensionState = LinkTensionState.CORRECTING;
@@ -180,11 +193,20 @@ export class Arena {
     this.fighterB.interpolate(alpha);
 
     // 링크 선 업데이트
-    const pts = [
-      new THREE.Vector3(this.fighterA.mesh.position.x, this.fighterA.mesh.position.y, this.fighterA.mesh.position.z),
-      new THREE.Vector3(this.fighterB.mesh.position.x, this.fighterB.mesh.position.y, this.fighterB.mesh.position.z),
-    ];
-    this.linkLine.geometry.setFromPoints(pts);
+    const positions = this.linkLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    positions.setXYZ(
+      0,
+      this.fighterA.mesh.position.x,
+      this.fighterA.mesh.position.y,
+      this.fighterA.mesh.position.z,
+    );
+    positions.setXYZ(
+      1,
+      this.fighterB.mesh.position.x,
+      this.fighterB.mesh.position.y,
+      this.fighterB.mesh.position.z,
+    );
+    positions.needsUpdate = true;
   }
 
   dispose() {

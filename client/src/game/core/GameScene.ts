@@ -86,7 +86,8 @@ export class GameScene {
     if (this.rafId !== null) return; // 중복 방지
 
     const loop = (time: number) => {
-      this.rafId = requestAnimationFrame(loop);
+      // 현재 콜백은 이미 소비되었다. 다음 프레임은 업데이트 성공 후 예약한다.
+      this.rafId = null;
 
       const delta = Math.min((time - this.lastTime) / 1000, 0.1); // 최대 100ms
       this.lastTime = time;
@@ -114,6 +115,7 @@ export class GameScene {
       onRender?.(alpha);
 
       this.renderer.render(this.scene, this.camera);
+      this.rafId = requestAnimationFrame(loop);
     };
 
     this.lastTime = performance.now();

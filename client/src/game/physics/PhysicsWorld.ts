@@ -7,6 +7,16 @@ const WALL_HALF_THICKNESS = 0.15;
 const WALL_HALF_HEIGHT = 0.5;
 const FIGHTER_CAPSULE_HALF_HEIGHT = 0.5;
 
+// React StrictMode에서도 Rapier의 전역 WASM 모듈은 한 번만 초기화한다.
+let rapierInitialization: Promise<void> | null = null;
+
+function ensureRapierInitialized(): Promise<void> {
+  if (!rapierInitialization) {
+    rapierInitialization = RAPIER.init();
+  }
+  return rapierInitialization;
+}
+
 export interface PhysicsCharacter {
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
@@ -19,6 +29,7 @@ export interface PhysicsCharacter {
 export class PhysicsWorld {
   private readonly world: RAPIER.World;
   private readonly controller: RAPIER.KinematicCharacterController;
+  private disposed = false;
   public lastCollisionCount = 0;
 
   private constructor() {
@@ -29,8 +40,14 @@ export class PhysicsWorld {
   }
 
   static async create(): Promise<PhysicsWorld> {
-    await RAPIER.init();
+    await ensureRapierInitialized();
     return new PhysicsWorld();
+  }
+
+  private assertActive() {
+    if (this.disposed) {
+      throw new Error('해제된 PhysicsWorld에 접근했습니다.');
+    }
   }
 
   private createArenaColliders() {
@@ -55,6 +72,7 @@ export class PhysicsWorld {
   }
 
   createCharacter(position: Vec3): PhysicsCharacter {
+    this.assertActive();
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
         position.x,
@@ -73,10 +91,12 @@ export class PhysicsWorld {
   }
 
   beginStep() {
+    this.assertActive();
     this.lastCollisionCount = 0;
   }
 
   moveCharacter(character: PhysicsCharacter, target: Vec3): number {
+    this.assertActive();
     const current = character.body.translation();
     this.controller.computeColliderMovement(character.collider, {
       x: target.x - current.x,
@@ -94,16 +114,20 @@ export class PhysicsWorld {
   }
 
   step(dt: number) {
+    this.assertActive();
     this.world.timestep = dt;
     this.world.step();
   }
 
   readPosition(character: PhysicsCharacter): Vec3 {
+    this.assertActive();
     const position = character.body.translation();
     return { x: position.x, y: position.y, z: position.z };
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     this.controller.free();
     this.world.free();
   }

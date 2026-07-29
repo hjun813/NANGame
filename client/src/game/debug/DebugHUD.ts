@@ -46,6 +46,9 @@ export class DebugHUD {
       Rapier collisions: ${arena.physicsCollisionCount}<br>
       ─────────────────<br>
       Link dist: <b>${arena.linkDistance.toFixed(3)}m</b> / ${GAME_CONFIG.LINK_NORMAL_MAX_DIST}m<br>
+      Max observed: ${arena.maxObservedLinkDistance.toFixed(3)}m<br>
+      Limit violations: <b>${arena.linkViolationFrames}</b> frames<br>
+      Corrections: ${arena.linkCorrectionFrames} frames<br>
       Link %: ${linkPct}%<br>
       Link state: <b>${arena.linkState}</b><br>
       Tension: <span style="color:${stateColor}"><b>${arena.linkTensionState}</b></span><br>
