@@ -4,8 +4,10 @@
  */
 export class InputManager {
   private keys = new Set<string>();
+  private pressed = new Set<string>();
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     this.keys.add(event.code);
+    if (!event.repeat) this.pressed.add(event.code);
     if (event.code.startsWith('Arrow')) event.preventDefault();
   };
   private readonly handleKeyUp = (event: KeyboardEvent) => {
@@ -13,6 +15,7 @@ export class InputManager {
   };
   private readonly handleBlur = () => {
     this.keys.clear();
+    this.pressed.clear();
   };
 
   constructor() {
@@ -41,10 +44,17 @@ export class InputManager {
     return this.keys.has(code);
   }
 
+  consumePress(code: string) {
+    if (!this.pressed.has(code)) return false;
+    this.pressed.delete(code);
+    return true;
+  }
+
   dispose() {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('blur', this.handleBlur);
     this.keys.clear();
+    this.pressed.clear();
   }
 }

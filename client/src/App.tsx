@@ -42,7 +42,9 @@ export function App() {
       (dt) => {
         const a = input.getPlayerAInput();
         const b = input.getPlayerBInput();
-        activeArena.fixedUpdate(a, b, dt);
+        const attackA = input.consumePress('KeyF');
+        const attackB = input.consumePress('KeyL');
+        activeArena.fixedUpdate(a, b, attackA, attackB, dt);
       },
       // ── render frame ──────────────────────
       (alpha) => {

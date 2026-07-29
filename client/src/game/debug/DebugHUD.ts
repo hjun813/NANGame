@@ -54,6 +54,10 @@ export class DebugHUD {
       Link state: <b>${arena.linkState}</b><br>
       Tension: <span style="color:${stateColor}"><b>${arena.linkTensionState}</b></span><br>
       ─────────────────<br>
+      Left attack [F]: ${arena.fighterA.attack.state}<br>
+      Right attack [L]: ${arena.fighterB.attack.state}<br>
+      Enemy HP: ${arena.enemyA.hp} / ${arena.enemyB.hp}<br>
+      ─────────────────<br>
       Network: <b>${network.status}</b><br>
       Room: ${network.roomId}<br>
       Players: ${network.playerCount}/2 &nbsp; Ready: ${network.readyCount}/2<br>

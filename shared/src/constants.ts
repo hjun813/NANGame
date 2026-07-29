@@ -25,7 +25,8 @@ export const GAME_CONFIG = {
   ATTACK_DAMAGE: 12,            // 문서 기준값 (플레이테스트로 수정 예정)
   ATTACK_WINDUP: 0.15,          // 선딜 (초)
   ATTACK_ACTIVE: 0.1,           // 히트박스 활성 시간 (초)
-  ATTACK_RECOVERY: 0.35,        // 후딜 (초)
+  ATTACK_RECOVERY: 0.45,        // 총 공격 쿨다운 0.7초를 맞추는 후딜
+  ATTACK_COOLDOWN: 0.7,         // 기능 요구사항 기준 총 공격 주기
   ATTACK_RANGE: 1.2,            // 공격 사거리 (m)
   KNOCKBACK_FORCE: 4,           // 넉백 강도 (m/s)
   STUN_DURATION: 0.4,           // 피격 경직 (초)

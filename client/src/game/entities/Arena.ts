@@ -1,24 +1,40 @@
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@shared/constants';
-import { LinkState, LinkTensionState } from '@shared/enums';
+import { FighterState, LinkState, LinkTensionState } from '@shared/enums';
 import { correctLinkedMovement, vec3Distance } from '@shared/linkCorrection';
+import { AttackStateMachine } from '@shared/combat';
 import type { Vec3 } from '@shared/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { PhysicsCharacter } from '../physics/PhysicsWorld';
 
 const ARENA_SIZE = 10; // 경기장 반폭 (m)
+const HITBOX_RADIUS = 0.4;
+const HITBOX_OFFSET = GAME_CONFIG.ATTACK_RANGE - HITBOX_RADIUS;
 
 /**
  * 캡슐 형태 파이터 (Three.js BoxGeometry 임시 표현)
  * Sprint 0 — 그레이박스
  */
 class Fighter {
+  id: string;
   mesh: THREE.Mesh;
+  hitbox: THREE.Mesh | null;
   position: Vec3;
   prevPosition: Vec3; // 보간용 이전 위치
   physicsCharacter: PhysicsCharacter;
+  attack = new AttackStateMachine();
+  hp: number = GAME_CONFIG.FIGHTER_MAX_HP;
+  knockbackVelocity: Vec3 = { x: 0, y: 0, z: 0 };
+  hitStunRemaining = 0;
 
-  constructor(color: number, startX: number, physics: PhysicsWorld) {
+  constructor(
+    id: string,
+    color: number,
+    startX: number,
+    physics: PhysicsWorld,
+    hasAttackHitbox = false,
+  ) {
+    this.id = id;
     const geo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
     const mat = new THREE.MeshStandardMaterial({ color });
     this.mesh = new THREE.Mesh(geo, mat);
@@ -27,6 +43,22 @@ class Fighter {
     this.prevPosition = { ...this.position };
     this.physicsCharacter = physics.createCharacter(this.position);
     this.mesh.position.set(startX, 0.9, 0);
+
+    if (hasAttackHitbox) {
+      const hitboxMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        transparent: true,
+        opacity: 0.45,
+        wireframe: true,
+      });
+      this.hitbox = new THREE.Mesh(
+        new THREE.SphereGeometry(HITBOX_RADIUS, 12, 8),
+        hitboxMaterial,
+      );
+      this.hitbox.visible = false;
+    } else {
+      this.hitbox = null;
+    }
   }
 
   /** 렌더 프레임 보간 (alpha: 0~1) */
@@ -87,11 +119,12 @@ export class Arena {
     });
 
     // ── 파이터 ────────────────────────────
-    this.fighterA = new Fighter(0x4fc3f7, -0.9, physics); // 파란 — 플레이어A
-    this.fighterB = new Fighter(0x81c784, 0.9, physics);  // 초록 — 플레이어B
-    this.enemyA = new Fighter(0xef5350, -3, physics);     // 빨간 — 적A
-    this.enemyB = new Fighter(0xff7043, 3, physics);      // 주황 — 적B
+    this.fighterA = new Fighter('player-left', 0x4fc3f7, -0.9, physics, true);
+    this.fighterB = new Fighter('player-right', 0x81c784, 0.9, physics, true);
+    this.enemyA = new Fighter('enemy-left', 0xef5350, -3, physics);
+    this.enemyB = new Fighter('enemy-right', 0xff7043, 3, physics);
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach(f => scene.add(f.mesh));
+    scene.add(this.fighterA.hitbox!, this.fighterB.hitbox!);
 
     // ── 링크 시각화 선 ───────────────────
     const linkGeo = new THREE.BufferGeometry().setFromPoints([
@@ -115,13 +148,26 @@ export class Arena {
    * @param inputB  플레이어B 입력 {x, z}
    * @param dt      고정 dt (1/60)
    */
-  fixedUpdate(inputA: { x: number; z: number }, inputB: { x: number; z: number }, dt: number) {
+  fixedUpdate(
+    inputA: { x: number; z: number },
+    inputB: { x: number; z: number },
+    attackA: boolean,
+    attackB: boolean,
+    dt: number,
+  ) {
     const speed = GAME_CONFIG.FIGHTER_MOVE_SPEED;
     const maxDist = GAME_CONFIG.LINK_NORMAL_MAX_DIST;
 
     // 저장
-    this.fighterA.prevPosition = { ...this.fighterA.position };
-    this.fighterB.prevPosition = { ...this.fighterB.position };
+    const fighters = [this.fighterA, this.fighterB, this.enemyA, this.enemyB];
+    fighters.forEach((fighter) => {
+      fighter.prevPosition = { ...fighter.position };
+    });
+
+    if (attackA) this.fighterA.attack.tryStart();
+    if (attackB) this.fighterB.attack.tryStart();
+    this.fighterA.attack.update(dt);
+    this.fighterB.attack.update(dt);
 
     const movementDelta = (input: { x: number; z: number }): Vec3 => {
       const length = Math.hypot(input.x, input.z);
@@ -155,11 +201,30 @@ export class Arena {
       this.fighterB.physicsCharacter,
       result.positionB,
     );
-    this.physics.lastCollisionCount = collisionsA + collisionsB;
+    const moveKnockedFighter = (fighter: Fighter) => {
+      if (fighter.hitStunRemaining <= 0) return 0;
+
+      fighter.hitStunRemaining = Math.max(0, fighter.hitStunRemaining - dt);
+      const target = {
+        x: fighter.position.x + fighter.knockbackVelocity.x * dt,
+        y: fighter.position.y,
+        z: fighter.position.z + fighter.knockbackVelocity.z * dt,
+      };
+      return this.physics.moveCharacter(fighter.physicsCharacter, target);
+    };
+    const enemyCollisions =
+      moveKnockedFighter(this.enemyA) + moveKnockedFighter(this.enemyB);
+    this.physics.lastCollisionCount =
+      collisionsA + collisionsB + enemyCollisions;
     this.physics.step(dt);
     this.physicsCollisionCount = this.physics.lastCollisionCount;
     this.fighterA.position = this.physics.readPosition(this.fighterA.physicsCharacter);
     this.fighterB.position = this.physics.readPosition(this.fighterB.physicsCharacter);
+    this.enemyA.position = this.physics.readPosition(this.enemyA.physicsCharacter);
+    this.enemyB.position = this.physics.readPosition(this.enemyB.physicsCharacter);
+
+    this.resolveAttack(this.fighterA, -1);
+    this.resolveAttack(this.fighterB, 1);
 
     // 링크 상태와 별개로 거리 기반 장력 상태 판정
     this.linkDistance = vec3Distance(this.fighterA.position, this.fighterB.position);
@@ -191,6 +256,10 @@ export class Arena {
   render(alpha: number) {
     this.fighterA.interpolate(alpha);
     this.fighterB.interpolate(alpha);
+    this.enemyA.interpolate(alpha);
+    this.enemyB.interpolate(alpha);
+    this.updateHitbox(this.fighterA, -1);
+    this.updateHitbox(this.fighterB, 1);
 
     // 링크 선 업데이트
     const positions = this.linkLine.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -207,6 +276,39 @@ export class Arena {
       this.fighterB.mesh.position.z,
     );
     positions.needsUpdate = true;
+  }
+
+  private resolveAttack(attacker: Fighter, directionX: -1 | 1) {
+    if (attacker.attack.state !== FighterState.ATTACK_ACTIVE) return;
+
+    const hitboxCenter = {
+      x: attacker.position.x + directionX * HITBOX_OFFSET,
+      y: attacker.position.y,
+      z: attacker.position.z,
+    };
+    for (const target of [this.enemyA, this.enemyB]) {
+      const distance = vec3Distance(hitboxCenter, target.position);
+      const intersects = distance <= HITBOX_RADIUS + GAME_CONFIG.FIGHTER_RADIUS;
+      if (!intersects || !attacker.attack.registerHit(target.id)) continue;
+
+      target.hp = Math.max(0, target.hp - GAME_CONFIG.ATTACK_DAMAGE);
+      target.knockbackVelocity = {
+        x: directionX * GAME_CONFIG.KNOCKBACK_FORCE,
+        y: 0,
+        z: 0,
+      };
+      target.hitStunRemaining = GAME_CONFIG.STUN_DURATION;
+    }
+  }
+
+  private updateHitbox(fighter: Fighter, directionX: -1 | 1) {
+    if (!fighter.hitbox) return;
+    fighter.hitbox.visible = fighter.attack.state === FighterState.ATTACK_ACTIVE;
+    fighter.hitbox.position.set(
+      fighter.mesh.position.x + directionX * HITBOX_OFFSET,
+      fighter.mesh.position.y,
+      fighter.mesh.position.z,
+    );
   }
 
   dispose() {
