@@ -3,6 +3,8 @@ import { GAME_CONFIG } from '@shared/constants';
 import { LinkState, LinkTensionState } from '@shared/enums';
 import { correctLinkedMovement, vec3Distance } from '@shared/linkCorrection';
 import type { Vec3 } from '@shared/types';
+import { PhysicsWorld } from '../physics/PhysicsWorld';
+import type { PhysicsCharacter } from '../physics/PhysicsWorld';
 
 const ARENA_SIZE = 10; // 경기장 반폭 (m)
 
@@ -14,14 +16,16 @@ class Fighter {
   mesh: THREE.Mesh;
   position: Vec3;
   prevPosition: Vec3; // 보간용 이전 위치
+  physicsCharacter: PhysicsCharacter;
 
-  constructor(color: number, startX: number) {
+  constructor(color: number, startX: number, physics: PhysicsWorld) {
     const geo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
     const mat = new THREE.MeshStandardMaterial({ color });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.castShadow = true;
     this.position = { x: startX, y: 0.9, z: 0 };
     this.prevPosition = { ...this.position };
+    this.physicsCharacter = physics.createCharacter(this.position);
     this.mesh.position.set(startX, 0.9, 0);
   }
 
@@ -41,6 +45,7 @@ class Fighter {
  */
 export class Arena {
   private scene: THREE.Scene;
+  private physics: PhysicsWorld;
   fighterA: Fighter; // 플레이어 팀 — 왼팔 (WASD)
   fighterB: Fighter; // 플레이어 팀 — 오른팔 (방향키)
   enemyA: Fighter;   // AI 팀 자리 표시
@@ -50,9 +55,11 @@ export class Arena {
   public linkState: LinkState = LinkState.ARM_LOCK;
   public linkTensionState: LinkTensionState = LinkTensionState.RELAXED;
   public linkDistance = 0;
+  public physicsCollisionCount = 0;
 
-  constructor(scene: THREE.Scene) {
+  private constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
+    this.physics = physics;
 
     // ── 바닥 ──────────────────────────────
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE * 2, ARENA_SIZE * 2);
@@ -77,10 +84,10 @@ export class Arena {
     });
 
     // ── 파이터 ────────────────────────────
-    this.fighterA = new Fighter(0x4fc3f7, -0.9); // 파란 — 플레이어A
-    this.fighterB = new Fighter(0x81c784, 0.9);  // 초록 — 플레이어B
-    this.enemyA = new Fighter(0xef5350, -3);     // 빨간 — 적A
-    this.enemyB = new Fighter(0xff7043, 3);      // 주황 — 적B
+    this.fighterA = new Fighter(0x4fc3f7, -0.9, physics); // 파란 — 플레이어A
+    this.fighterB = new Fighter(0x81c784, 0.9, physics);  // 초록 — 플레이어B
+    this.enemyA = new Fighter(0xef5350, -3, physics);     // 빨간 — 적A
+    this.enemyB = new Fighter(0xff7043, 3, physics);      // 주황 — 적B
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach(f => scene.add(f.mesh));
 
     // ── 링크 시각화 선 ───────────────────
@@ -90,6 +97,11 @@ export class Arena {
     const linkMat = new THREE.LineBasicMaterial({ color: 0xffd54f, linewidth: 2 });
     this.linkLine = new THREE.Line(linkGeo, linkMat);
     scene.add(this.linkLine);
+  }
+
+  static async create(scene: THREE.Scene): Promise<Arena> {
+    const physics = await PhysicsWorld.create();
+    return new Arena(scene, physics);
   }
 
   /**
@@ -127,15 +139,21 @@ export class Arena {
       maxDist
     );
 
-    // 벽 클램프
-    const clamp = (v: Vec3): Vec3 => ({
-      x: Math.max(-ARENA_SIZE + 0.5, Math.min(ARENA_SIZE - 0.5, v.x)),
-      y: v.y,
-      z: Math.max(-ARENA_SIZE + 0.5, Math.min(ARENA_SIZE - 0.5, v.z)),
-    });
-
-    this.fighterA.position = clamp(result.positionA);
-    this.fighterB.position = clamp(result.positionB);
+    // Rapier character controller가 벽/바닥/다른 캡슐과 충돌 가능한 이동량을 계산한다.
+    this.physics.beginStep();
+    const collisionsA = this.physics.moveCharacter(
+      this.fighterA.physicsCharacter,
+      result.positionA,
+    );
+    const collisionsB = this.physics.moveCharacter(
+      this.fighterB.physicsCharacter,
+      result.positionB,
+    );
+    this.physics.lastCollisionCount = collisionsA + collisionsB;
+    this.physics.step(dt);
+    this.physicsCollisionCount = this.physics.lastCollisionCount;
+    this.fighterA.position = this.physics.readPosition(this.fighterA.physicsCharacter);
+    this.fighterB.position = this.physics.readPosition(this.fighterB.physicsCharacter);
 
     // 링크 상태와 별개로 거리 기반 장력 상태 판정
     this.linkDistance = vec3Distance(this.fighterA.position, this.fighterB.position);
@@ -167,5 +185,9 @@ export class Arena {
       new THREE.Vector3(this.fighterB.mesh.position.x, this.fighterB.mesh.position.y, this.fighterB.mesh.position.z),
     ];
     this.linkLine.geometry.setFromPoints(pts);
+  }
+
+  dispose() {
+    this.physics.dispose();
   }
 }

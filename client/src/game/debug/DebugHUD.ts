@@ -43,6 +43,7 @@ export class DebugHUD {
       <b style="color:#ffd54f">🎮 Sprint 0 Debug</b><br>
       FPS: <b>${scene.fps}</b><br>
       Fixed steps: ${scene.fixedStepCount}<br>
+      Rapier collisions: ${arena.physicsCollisionCount}<br>
       ─────────────────<br>
       Link dist: <b>${arena.linkDistance.toFixed(3)}m</b> / ${GAME_CONFIG.LINK_NORMAL_MAX_DIST}m<br>
       Link %: ${linkPct}%<br>
