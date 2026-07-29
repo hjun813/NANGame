@@ -26,6 +26,9 @@
 | `06_decision_log.md` | 주요 기술·게임 디자인 의사결정 기록 |
 | `07_acceptance_test_cases.md` | MVP 인수 테스트 시나리오 |
 | `08_risk_register.md` | 주요 개발 위험과 대응 전략 |
+| `09_game_overview.md` | 게임 개요 |
+| `10_game_development_plan.md` | 개발 계획서 |
+| `11_game_rules.md` | 게임 전략 및 규칙 |
 
 ---
 
