@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "colyseus": "^0.15.0",
+    "@colyseus/monitor": "^0.15.0",
     "express": "^4.19.2",
     "linked-fighters-shared": "file:../shared"
   },
