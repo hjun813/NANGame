@@ -1,0 +1,16 @@
+{
+  "name": "linked-fighters",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose up",
+    "dev:local": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
+    "build": "cd shared && npm run build && cd ../client && npm run build && cd ../server && npm run build",
+    "docker:build": "docker compose build",
+    "docker:down": "docker compose down",
+    "docker:clean": "docker compose down -v --rmi local"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

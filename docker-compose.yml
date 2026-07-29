@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  # ─────────────────────────────────────────
+  # Vite 클라이언트 개발 서버
+  # ─────────────────────────────────────────
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: lf-client
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./client:/app/client
+      - ./shared:/app/shared
+      - /app/client/node_modules
+    environment:
+      - VITE_SERVER_URL=ws://localhost:2567
+    depends_on:
+      - server
+    networks:
+      - lf-net
+
+  # ─────────────────────────────────────────
+  # Colyseus 게임 서버
+  # ─────────────────────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: lf-server
+    ports:
+      - '2567:2567'
+    volumes:
+      - ./server:/app/server
+      - ./shared:/app/shared
+      - /app/server/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=2567
+    networks:
+      - lf-net
+
+networks:
+  lf-net:
+    driver: bridge
