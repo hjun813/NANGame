@@ -17,6 +17,8 @@ export class GameScene {
   private rafId: number | null = null;
   private lastTime = 0;
   private accumulator = 0;
+  private fpsElapsed = 0;
+  private fpsFrames = 0;
 
   // 고정 타임스텝 1/60
   private readonly FIXED_DT = 1 / 60;
@@ -88,7 +90,13 @@ export class GameScene {
 
       const delta = Math.min((time - this.lastTime) / 1000, 0.1); // 최대 100ms
       this.lastTime = time;
-      this.fps = Math.round(1 / delta);
+      this.fpsElapsed += delta;
+      this.fpsFrames++;
+      if (this.fpsElapsed >= 0.5) {
+        this.fps = Math.round(this.fpsFrames / this.fpsElapsed);
+        this.fpsElapsed = 0;
+        this.fpsFrames = 0;
+      }
 
       this.accumulator += delta;
       if (this.accumulator > this.MAX_ACCUMULATOR) {

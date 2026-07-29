@@ -1,6 +1,7 @@
 import type { GameScene } from '../core/GameScene';
 import type { Arena } from '../entities/Arena';
-import { GAME_CONFIG, LinkState } from 'linked-fighters-shared';
+import { GAME_CONFIG } from '@shared/constants';
+import { LinkTensionState } from '@shared/enums';
 
 /**
  * Sprint 0 디버그 HUD
@@ -36,7 +37,7 @@ export class DebugHUD {
 
   update(scene: GameScene, arena: Arena) {
     const linkPct = Math.round((arena.linkDistance / GAME_CONFIG.LINK_NORMAL_MAX_DIST) * 100);
-    const stateColor = arena.linkState === LinkState.STRETCHED ? '#ff5252' : '#69f0ae';
+    const stateColor = arena.linkTensionState === LinkTensionState.RELAXED ? '#69f0ae' : '#ff5252';
 
     this.el.innerHTML = `
       <b style="color:#ffd54f">🎮 Sprint 0 Debug</b><br>
@@ -45,7 +46,8 @@ export class DebugHUD {
       ─────────────────<br>
       Link dist: <b>${arena.linkDistance.toFixed(3)}m</b> / ${GAME_CONFIG.LINK_NORMAL_MAX_DIST}m<br>
       Link %: ${linkPct}%<br>
-      State: <span style="color:${stateColor}"><b>${arena.linkState}</b></span><br>
+      Link state: <b>${arena.linkState}</b><br>
+      Tension: <span style="color:${stateColor}"><b>${arena.linkTensionState}</b></span><br>
       ─────────────────<br>
       <span style="color:#90caf9">A: WASD</span> &nbsp; <span style="color:#a5d6a7">B: Arrow</span>
     `.trim();

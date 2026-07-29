@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import { GAME_CONFIG, LinkState, correctLinkedMovement, vec3Distance } from 'linked-fighters-shared';
-import type { Vec3 } from 'linked-fighters-shared';
+import { GAME_CONFIG } from '@shared/constants';
+import { LinkState, LinkTensionState } from '@shared/enums';
+import { correctLinkedMovement, vec3Distance } from '@shared/linkCorrection';
+import type { Vec3 } from '@shared/types';
 
 const ARENA_SIZE = 10; // 경기장 반폭 (m)
 
@@ -46,6 +48,7 @@ export class Arena {
 
   private linkLine: THREE.Line;
   public linkState: LinkState = LinkState.ARM_LOCK;
+  public linkTensionState: LinkTensionState = LinkTensionState.RELAXED;
   public linkDistance = 0;
 
   constructor(scene: THREE.Scene) {
@@ -103,8 +106,17 @@ export class Arena {
     this.fighterA.prevPosition = { ...this.fighterA.position };
     this.fighterB.prevPosition = { ...this.fighterB.position };
 
-    const deltaA: Vec3 = { x: inputA.x * speed * dt, y: 0, z: inputA.z * speed * dt };
-    const deltaB: Vec3 = { x: inputB.x * speed * dt, y: 0, z: inputB.z * speed * dt };
+    const movementDelta = (input: { x: number; z: number }): Vec3 => {
+      const length = Math.hypot(input.x, input.z);
+      const scale = length > 1 ? 1 / length : 1;
+      return {
+        x: input.x * scale * speed * dt,
+        y: 0,
+        z: input.z * scale * speed * dt,
+      };
+    };
+    const deltaA = movementDelta(inputA);
+    const deltaB = movementDelta(inputB);
 
     // 링크 보정 (순수 함수)
     const result = correctLinkedMovement(
@@ -125,14 +137,23 @@ export class Arena {
     this.fighterA.position = clamp(result.positionA);
     this.fighterB.position = clamp(result.positionB);
 
-    // 링크 상태 판정
+    // 링크 상태와 별개로 거리 기반 장력 상태 판정
     this.linkDistance = vec3Distance(this.fighterA.position, this.fighterB.position);
-    const stretchThresh = maxDist * GAME_CONFIG.LINK_STRETCH_THRESHOLD;
-    this.linkState = this.linkDistance >= stretchThresh ? LinkState.STRETCHED : LinkState.ARM_LOCK;
+    const distanceRatio = this.linkDistance / maxDist;
+    if (result.wasConstrained) {
+      this.linkTensionState = LinkTensionState.CORRECTING;
+    } else if (distanceRatio >= 0.9) {
+      this.linkTensionState = LinkTensionState.LIMIT;
+    } else if (distanceRatio >= 0.7) {
+      this.linkTensionState = LinkTensionState.TENSION;
+    } else {
+      this.linkTensionState = LinkTensionState.RELAXED;
+    }
 
     // 링크 선 색상 갱신
     const mat = this.linkLine.material as THREE.LineBasicMaterial;
-    mat.color.setHex(this.linkState === LinkState.STRETCHED ? 0xff5252 : 0xffd54f);
+    const isUnderTension = this.linkTensionState !== LinkTensionState.RELAXED;
+    mat.color.setHex(isUnderTension ? 0xff5252 : 0xffd54f);
   }
 
   /** 렌더 프레임마다 링크 선 + 보간 적용 */

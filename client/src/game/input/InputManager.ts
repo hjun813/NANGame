@@ -4,15 +4,21 @@
  */
 export class InputManager {
   private keys = new Set<string>();
+  private readonly handleKeyDown = (event: KeyboardEvent) => {
+    this.keys.add(event.code);
+    if (event.code.startsWith('Arrow')) event.preventDefault();
+  };
+  private readonly handleKeyUp = (event: KeyboardEvent) => {
+    this.keys.delete(event.code);
+  };
+  private readonly handleBlur = () => {
+    this.keys.clear();
+  };
 
   constructor() {
-    window.addEventListener('keydown', (e) => {
-      this.keys.add(e.code);
-      e.preventDefault(); // 방향키 스크롤 방지
-    });
-    window.addEventListener('keyup', (e) => {
-      this.keys.delete(e.code);
-    });
+    window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.handleBlur);
   }
 
   // 플레이어 A (WASD)
@@ -36,6 +42,9 @@ export class InputManager {
   }
 
   dispose() {
-    // 실제 앱에서는 이벤트 제거 필요 (단일 씬 구성이므로 생략)
+    window.removeEventListener('keydown', this.handleKeyDown);
+    window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.handleBlur);
+    this.keys.clear();
   }
 }

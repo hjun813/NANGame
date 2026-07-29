@@ -1,4 +1,4 @@
-import type { Vec3 } from 'linked-fighters-shared';
+import type { Vec3 } from './types';
 
 export interface LinkCorrectionResult {
   positionA: Vec3;

@@ -17,8 +17,6 @@ export const GAME_CONFIG = {
   LINK_HOLD_MAX_DIST: 4.0,      // 손잡기 최대 거리 (m)
   LINK_HOLD_DURATION: 5,        // 손잡기 지속 시간 (초)
   LINK_HOLD_COOLDOWN: 15,       // 손잡기 쿨다운 (초)
-  LINK_STRETCH_THRESHOLD: 0.85, // 최대 거리 몇 % 이상에서 STRETCHED 상태로 전환
-
   // 이동 보정
   SAME_DIR_BONUS: 1.3,          // 같은 방향 이동 보상 배율
   OPP_DIR_PENALTY: 0.6,         // 반대 방향 이동 패널티 배율
