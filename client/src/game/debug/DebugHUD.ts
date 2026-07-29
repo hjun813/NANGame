@@ -2,6 +2,7 @@ import type { GameScene } from '../core/GameScene';
 import type { Arena } from '../entities/Arena';
 import { GAME_CONFIG } from '@shared/constants';
 import { LinkTensionState } from '@shared/enums';
+import type { NetworkSpike } from '../network/NetworkSpike';
 
 /**
  * Sprint 0 디버그 HUD
@@ -35,7 +36,7 @@ export class DebugHUD {
     document.body.appendChild(this.el);
   }
 
-  update(scene: GameScene, arena: Arena) {
+  update(scene: GameScene, arena: Arena, network: NetworkSpike) {
     const linkPct = Math.round((arena.linkDistance / GAME_CONFIG.LINK_NORMAL_MAX_DIST) * 100);
     const stateColor = arena.linkTensionState === LinkTensionState.RELAXED ? '#69f0ae' : '#ff5252';
 
@@ -52,6 +53,13 @@ export class DebugHUD {
       Link %: ${linkPct}%<br>
       Link state: <b>${arena.linkState}</b><br>
       Tension: <span style="color:${stateColor}"><b>${arena.linkTensionState}</b></span><br>
+      ─────────────────<br>
+      Network: <b>${network.status}</b><br>
+      Room: ${network.roomId}<br>
+      Players: ${network.playerCount}/2 &nbsp; Ready: ${network.readyCount}/2<br>
+      Revision: ${network.revision}<br>
+      ${network.error ? `<span style="color:#ff5252">${network.error}</span><br>` : ''}
+      Press N: toggle network ready<br>
       ─────────────────<br>
       <span style="color:#90caf9">A: WASD</span> &nbsp; <span style="color:#a5d6a7">B: Arrow</span>
     `.trim();

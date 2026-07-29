@@ -4,6 +4,7 @@ import { GameScene } from './game/core/GameScene';
 import { Arena } from './game/entities/Arena';
 import { InputManager } from './game/input/InputManager';
 import { DebugHUD } from './game/debug/DebugHUD';
+import { NetworkSpike } from './game/network/NetworkSpike';
 
 // 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
 const CAM_HEIGHT = 10;
@@ -20,11 +21,13 @@ export function App() {
     const camera    = gameScene.getCamera();
     const input     = new InputManager();
     const hud       = new DebugHUD();
+    const network   = new NetworkSpike();
     let arena: Arena | null = null;
     let cancelled = false;
 
     // 카메라 부드러운 추적용 현재 목표 위치
     const camTarget = new THREE.Vector3(0, 0, 0);
+    void network.connect();
 
     void Arena.create(gameScene.getScene())
       .then((createdArena) => {
@@ -60,7 +63,7 @@ export function App() {
         camera.position.set(camTarget.x, CAM_HEIGHT, camTarget.z + CAM_DEPTH);
         camera.lookAt(camTarget.x, 0, camTarget.z);
 
-        hud.update(gameScene, activeArena);
+        hud.update(gameScene, activeArena, network);
       }
         );
       })
@@ -74,6 +77,7 @@ export function App() {
       arena?.dispose();
       hud.dispose();
       input.dispose();
+      network.dispose();
     };
   }, []);
 

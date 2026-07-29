@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
+import { SpikeRoom } from './rooms/SpikeRoom';
 
 const PORT = Number(process.env.PORT) || 2567;
 
@@ -11,6 +12,7 @@ const httpServer = createServer(app);
 const gameServer = new Server({
   transport: new WebSocketTransport({ server: httpServer }),
 });
+gameServer.define('spike_room', SpikeRoom);
 
 // 헬스체크
 app.get('/health', (_req, res) => {
@@ -21,4 +23,3 @@ httpServer.listen(PORT, () => {
   console.log(`🟢 Linked Fighters 서버 실행 중 — http://localhost:${PORT}`);
   console.log(`💓 헬스체크 — http://localhost:${PORT}/health`);
 });
-

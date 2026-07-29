@@ -50,4 +50,7 @@ export const EVENTS = {
   GAME_STATE_CHANGE: 'game_state_change',
   PLAYER_READY: 'player_ready',
   REMATCH_REQUEST: 'rematch_request',
+  SPIKE_READY: 'spike_ready',
+  SPIKE_REQUEST_STATE: 'spike_request_state',
+  SPIKE_STATE: 'spike_state',
 } as const;
