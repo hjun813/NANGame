@@ -8,6 +8,7 @@ import { DebugControlPanel } from './game/debug/DebugControlPanel';
 import { NetworkSpike } from './game/network/NetworkSpike';
 import { CombatNetwork } from './game/network/CombatNetwork';
 import { FighterSlot } from '@shared/enums';
+import { PlayHUD } from './game/ui/PlayHUD';
 
 // 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
 const CAM_HEIGHT = 10;
@@ -24,12 +25,19 @@ export function App() {
     const camera    = gameScene.getCamera();
     const input     = new InputManager();
     const hud       = new DebugHUD();
+    const playHud   = new PlayHUD();
     const network   = new NetworkSpike();
     let arena: Arena | null = null;
     let debugControls: DebugControlPanel | null = null;
-    const combatNetwork = new CombatNetwork((state) => {
-      arena?.applyAuthoritativeState(state, combatNetwork.assignment?.fighterId);
-    });
+    const combatNetwork = new CombatNetwork(
+      (state) => {
+        arena?.applyAuthoritativeState(state, combatNetwork.assignment?.fighterId);
+        playHud.updateCombatState(state);
+      },
+      (status) => playHud.setConnectionState(status),
+      (assignment) => playHud.setAssignedSlot(assignment?.slot ?? null),
+    );
+    playHud.setConnectionState(combatNetwork.status);
     let cancelled = false;
     let inputSequence = 0;
     let attackSequence = 0;
@@ -113,6 +121,7 @@ export function App() {
       gameScene.dispose();
       arena?.dispose();
       hud.dispose();
+      playHud.destroy();
       debugControls?.dispose();
       input.dispose();
       network.dispose();

@@ -1,0 +1,88 @@
+import { GAME_CONFIG } from '@shared/constants';
+import { FighterSlot, GameState, MatchResult } from '@shared/enums';
+import type { CombatStateSnapshot, HealthFighterState } from '@shared/health';
+import { formatMatchTime, gameStateMessage, hpPercent, isDown, resultCopy, slotGuide } from '@shared/playUi';
+import type { CombatConnectionStatus } from '../network/CombatNetwork';
+
+type FighterView = { root: HTMLElement; hp: HTMLElement; fill: HTMLElement; badge: HTMLElement };
+
+export class PlayHUD {
+  private readonly root: HTMLElement;
+  private readonly timer: HTMLElement;
+  private readonly centerMessage: HTMLElement;
+  private readonly result: HTMLElement;
+  private readonly resultTitle: HTMLElement;
+  private readonly resultDetail: HTMLElement;
+  private readonly guide: HTMLElement;
+  private readonly connection: HTMLElement;
+  private readonly fighterViews = new Map<string, FighterView>();
+
+  constructor() {
+    document.getElementById('linked-fighters-play-hud')?.remove();
+    this.root = document.createElement('div');
+    this.root.id = 'linked-fighters-play-hud';
+    this.root.innerHTML = `<style>
+      #linked-fighters-play-hud{position:fixed;inset:0;z-index:900;pointer-events:none;color:#fff;font-family:Inter,system-ui,sans-serif;text-shadow:0 2px 4px #000}
+      .lf-score{position:absolute;top:16px;left:50%;transform:translateX(-50%);width:min(920px,94vw);display:grid;grid-template-columns:1fr auto 1fr;gap:22px;align-items:start}
+      .lf-team{padding:12px 14px;background:#07111ddd;border:1px solid #ffffff26;border-radius:12px;box-shadow:0 8px 24px #0008}.lf-team.enemy{text-align:right}.lf-team h2{font-size:12px;letter-spacing:2px;margin:0 0 8px;color:#9bdcff}.lf-team.enemy h2{color:#ffaaa7}
+      .lf-fighter{margin:7px 0}.lf-name{display:flex;justify-content:space-between;font-size:12px;font-weight:700}.enemy .lf-name{flex-direction:row-reverse}.lf-badge{color:#ffcc4d;min-width:42px}.lf-bar{height:10px;background:#ffffff1a;border-radius:10px;overflow:hidden;margin-top:3px}.lf-fill{height:100%;width:100%;background:linear-gradient(90deg,#29d17d,#8eee58);transition:width .12s linear}.enemy .lf-fill{background:linear-gradient(90deg,#ffb347,#f04f54)}.lf-fighter.down{opacity:.62}.lf-fighter.down .lf-fill{background:#68707a}.lf-fighter.down .lf-name{text-decoration:line-through}
+      .lf-timer{font:800 28px/1 ui-monospace,monospace;padding:12px 16px;border-radius:10px;background:#05090ee6;border:1px solid #ffffff38;letter-spacing:2px}
+      .lf-center{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:clamp(30px,7vw,76px);font-weight:900;text-align:center;white-space:nowrap}.lf-center.waiting{font-size:clamp(20px,3vw,34px);padding:18px 24px;background:#07111ddd;border-radius:14px}
+      .lf-result{position:absolute;inset:0;display:none;place-content:center;text-align:center;background:#03070ab8}.lf-result.show{display:grid}.lf-result h1{font-size:clamp(48px,9vw,96px);margin:0}.lf-result p{font-size:18px;margin:12px 0 0}.lf-result small{margin-top:20px;color:#b9c1c9}
+      .lf-guide{position:absolute;left:18px;bottom:18px;padding:12px 16px;background:#07111ddd;border:1px solid #ffffff26;border-radius:10px;font-size:13px;line-height:1.7}.lf-guide strong{color:#9bdcff}.lf-connection{position:absolute;right:18px;bottom:18px;padding:8px 12px;border-radius:20px;background:#07111ddd;font-size:12px;border:1px solid #ffffff26}.lf-connection.connected{color:#86efac}.lf-connection.error{color:#fca5a5}
+      @media(max-width:650px){.lf-score{grid-template-columns:1fr 1fr;gap:8px}.lf-timer{position:absolute;left:50%;top:0;transform:translateX(-50%);font-size:18px}.lf-team{margin-top:46px;padding:9px}.lf-guide{font-size:11px;bottom:12px;left:12px}.lf-connection{right:12px;bottom:12px}}
+    </style>
+    <div class="lf-score"><section class="lf-team"><h2>PLAYER TEAM</h2>${this.fighterMarkup('player-left','LEFT')}${this.fighterMarkup('player-right','RIGHT')}</section><div class="lf-timer">03:00</div><section class="lf-team enemy"><h2>ENEMY TEAM</h2>${this.fighterMarkup('enemy-left','LEFT')}${this.fighterMarkup('enemy-right','RIGHT')}</section></div>
+    <div class="lf-center waiting">경기 상태 확인 중...</div>
+    <div class="lf-result"><h1></h1><p></p><small>재경기 기능 준비 중</small></div>
+    <div class="lf-guide"></div><div class="lf-connection">서버 연결 중...</div>`;
+    document.body.appendChild(this.root);
+    this.timer = this.require('.lf-timer'); this.centerMessage = this.require('.lf-center');
+    this.result = this.require('.lf-result'); this.resultTitle = this.require('.lf-result h1'); this.resultDetail = this.require('.lf-result p');
+    this.guide = this.require('.lf-guide'); this.connection = this.require('.lf-connection');
+    for (const id of ['player-left','player-right','enemy-left','enemy-right']) {
+      const root = this.require(`[data-fighter="${id}"]`);
+      this.fighterViews.set(id, { root, hp: this.require('.lf-hp', root), fill: this.require('.lf-fill', root), badge: this.require('.lf-badge', root) });
+    }
+    this.setAssignedSlot(null);
+  }
+
+  updateCombatState(snapshot: CombatStateSnapshot): void {
+    this.timer.textContent = formatMatchTime(snapshot.timeRemaining);
+    for (const fighter of snapshot.fighters) this.updateFighter(fighter);
+    const message = gameStateMessage(snapshot.gameState, snapshot.countdownRemaining);
+    this.centerMessage.textContent = message ?? '';
+    this.centerMessage.style.display = message ? 'block' : 'none';
+    this.centerMessage.classList.toggle('waiting', snapshot.gameState !== GameState.COUNTDOWN);
+    const finished = snapshot.gameState === GameState.FINISHED;
+    this.result.classList.toggle('show', finished);
+    if (finished) {
+      const copy = resultCopy(snapshot.result);
+      this.resultTitle.textContent = copy.title; this.resultDetail.textContent = copy.detail;
+    }
+  }
+
+  setAssignedSlot(slot: FighterSlot | null): void {
+    const copy = slotGuide(slot);
+    this.guide.innerHTML = `<strong>내 캐릭터: ${copy.label}</strong><br>이동: ${copy.movement} · 공격: ${copy.attack}`;
+  }
+
+  setConnectionState(state: CombatConnectionStatus): void {
+    const labels: Record<CombatConnectionStatus,string> = { CONNECTING:'서버 연결 중...', CONNECTED:'서버 연결됨', DISCONNECTED:'서버 연결 해제', ERROR:'서버 연결 오류' };
+    this.connection.textContent = labels[state];
+    this.connection.className = `lf-connection ${state === 'CONNECTED' ? 'connected' : state === 'CONNECTING' ? '' : 'error'}`;
+  }
+
+  destroy(): void { this.root.remove(); }
+
+  private updateFighter(fighter: HealthFighterState): void {
+    const view = this.fighterViews.get(fighter.id); if (!view) return;
+    const hp = Math.min(GAME_CONFIG.FIGHTER_MAX_HP, Math.max(0, fighter.hp));
+    view.hp.textContent = `${Math.ceil(hp)} / ${GAME_CONFIG.FIGHTER_MAX_HP}`;
+    view.fill.style.width = `${hpPercent(hp, GAME_CONFIG.FIGHTER_MAX_HP)}%`;
+    const down = isDown(fighter.state); view.root.classList.toggle('down', down); view.badge.textContent = down ? 'DOWN' : '';
+  }
+
+  private fighterMarkup(id: string, label: string): string { return `<div class="lf-fighter" data-fighter="${id}"><div class="lf-name"><span>${label}</span><span class="lf-hp">100 / 100</span><span class="lf-badge"></span></div><div class="lf-bar"><div class="lf-fill"></div></div></div>`; }
+  private require<T extends HTMLElement = HTMLElement>(selector: string, root: ParentNode = this.root): T { const element = root.querySelector<T>(selector); if (!element) throw new Error(`PlayHUD element missing: ${selector}`); return element; }
+}

@@ -9,7 +9,7 @@ import type {
 } from '@shared/health';
 
 export class CombatNetwork {
-  public status = 'CONNECTING';
+  public status: CombatConnectionStatus = 'CONNECTING';
   private room: Room | null = null;
   private disposed = false;
   public assignment: CombatAssignmentMessage | null = null;
@@ -18,7 +18,14 @@ export class CombatNetwork {
 
   constructor(
     private readonly onState: (state: CombatStateSnapshot) => void,
+    private readonly onStatusChange?: (status: CombatConnectionStatus) => void,
+    private readonly onAssignmentChange?: (assignment: CombatAssignmentMessage | null) => void,
   ) {}
+
+  private setStatus(status: CombatConnectionStatus) {
+    this.status = status;
+    this.onStatusChange?.(status);
+  }
 
   async connect() {
     const endpoint = import.meta.env.VITE_SERVER_URL || 'ws://localhost:2567';
@@ -29,26 +36,28 @@ export class CombatNetwork {
         return;
       }
       this.room = room;
-      this.status = 'CONNECTED';
+      this.setStatus('CONNECTED');
       this.roomId = room.roomId;
       this.sessionId = room.sessionId;
       room.onMessage<CombatStateSnapshot>(EVENTS.COMBAT_STATE, this.onState);
       room.onMessage<CombatAssignmentMessage>(EVENTS.COMBAT_ASSIGNMENT, (assignment) => {
         this.assignment = assignment;
+        this.onAssignmentChange?.(assignment);
       });
       room.onLeave(() => {
         if (!this.disposed) {
-          this.status = 'DISCONNECTED';
+          this.setStatus('DISCONNECTED');
           this.room = null;
           this.assignment = null;
+          this.onAssignmentChange?.(null);
         }
       });
       room.onError(() => {
-        this.status = 'ERROR';
+        this.setStatus('ERROR');
       });
       room.send(EVENTS.COMBAT_REQUEST_STATE);
     } catch {
-      if (!this.disposed) this.status = 'ERROR';
+      if (!this.disposed) this.setStatus('ERROR');
     }
   }
 
@@ -84,3 +93,5 @@ export class CombatNetwork {
     this.room = null;
   }
 }
+
+export type CombatConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
