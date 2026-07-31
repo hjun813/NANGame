@@ -7,15 +7,19 @@ import {
   evaluateTimeLimitResult,
   GAME_CONFIG,
   isBasicAttackHit,
+  separateAIStates,
+  stepAI,
 } from 'linked-fighters-shared';
 import {
+  AIState,
   EVENTS,
   FighterSlot,
+  FighterState,
   GameState,
   MatchResult,
   Team,
 } from 'linked-fighters-shared';
-import type { HealthFighterState } from 'linked-fighters-shared';
+import type { AIStateSnapshot, HealthFighterState } from 'linked-fighters-shared';
 import type {
   CombatAttackMessage,
   CombatDamageMessage,
@@ -32,6 +36,7 @@ export class CombatRoom extends Room {
   maxClients = 2;
   private fighters = this.createInitialFighters();
   private positions = this.createInitialPositions();
+  private aiStates = this.createInitialAIStates();
   private readonly assignments = new Map<string, FighterSlot>();
   private readonly positionSequences = new Map<FighterSlot, number>();
   private readonly attackSequences = new Map<FighterSlot, number>();
@@ -116,7 +121,11 @@ export class CombatRoom extends Room {
     const proposed = message.position;
     const distance = Math.hypot(proposed.x - current.x, proposed.z - current.z);
     // 프레임 드롭은 허용하되 순간이동과 경기장 이탈은 거부한다.
-    if (distance > 1 || Math.abs(proposed.x) > 9.5 || Math.abs(proposed.z) > 9.5) return;
+    if (
+      distance > 1 ||
+      Math.abs(proposed.x) > GAME_CONFIG.ARENA_POSITION_LIMIT ||
+      Math.abs(proposed.z) > GAME_CONFIG.ARENA_POSITION_LIMIT
+    ) return;
     this.positionSequences.set(slot, message.sequence);
     this.positions[fighterId] = { x: proposed.x, y: 0.9, z: proposed.z };
     this.revision++;
@@ -175,9 +184,12 @@ export class CombatRoom extends Room {
     if (this.gameState !== GameState.PLAYING) return;
 
     this.updateAttacks(dt);
-    this.timeRemaining = Math.max(0, this.timeRemaining - dt);
-    if (this.timeRemaining === 0) {
-      this.finishMatch(evaluateTimeLimitResult(this.fighters));
+    if (this.gameState === GameState.PLAYING) {
+      this.updateAI(dt);
+      this.timeRemaining = Math.max(0, this.timeRemaining - dt);
+      if (this.timeRemaining === 0) {
+        this.finishMatch(evaluateTimeLimitResult(this.fighters));
+      }
     }
     this.revision++;
     this.broadcastState();
@@ -203,6 +215,34 @@ export class CombatRoom extends Room {
       stateChanged = true;
     }
     return stateChanged;
+  }
+
+  private updateAI(dt: number) {
+    const playerCandidates = this.fighters
+      .filter((fighter) => fighter.team === Team.PLAYER)
+      .map((fighter) => ({
+        id: fighter.id,
+        state: fighter.state,
+        position: this.positions[fighter.id],
+      }));
+    const stepped = this.aiStates.map((ai) => {
+      const fighter = this.fighters.find((candidate) => candidate.id === ai.id);
+      return stepAI(ai, playerCandidates, {
+        gameState: this.gameState,
+        fighterState: fighter?.state ?? FighterState.DOWN,
+        deltaTime: dt,
+      });
+    });
+    const fighterA = this.fighters.find((fighter) => fighter.id === stepped[0].id);
+    const fighterB = this.fighters.find((fighter) => fighter.id === stepped[1].id);
+    const [separatedA, separatedB] = separateAIStates(stepped[0], stepped[1], {
+      movableA: fighterA?.state !== FighterState.DOWN,
+      movableB: fighterB?.state !== FighterState.DOWN,
+    });
+    this.aiStates = [separatedA, separatedB];
+    for (const ai of this.aiStates) {
+      this.positions[ai.id] = { ...ai.position };
+    }
   }
 
   private resolveServerAttack(attackerId: string, attack: AttackStateMachine): boolean {
@@ -283,6 +323,10 @@ export class CombatRoom extends Room {
         attackId: this.attacks[fighter.id]?.attackId ?? 0,
         position: { ...this.positions[fighter.id] },
       })),
+      aiStates: this.aiStates.map((ai) => ({
+        ...ai,
+        position: { ...ai.position },
+      })),
       playerLinkState: evaluation.playerLinkState,
       enemyLinkState: evaluation.enemyLinkState,
       result: this.matchResult,
@@ -301,6 +345,11 @@ export class CombatRoom extends Room {
     if (result === MatchResult.PLAYING) return;
     this.matchResult = result;
     this.gameState = GameState.FINISHED;
+    this.aiStates = this.aiStates.map((ai) => ({
+      ...ai,
+      state: AIState.IDLE,
+      targetId: null,
+    }));
     for (const fighter of this.fighters) {
       if (fighter.state === 'DOWN') continue;
       const attack = this.attacks[fighter.id];
@@ -312,6 +361,7 @@ export class CombatRoom extends Room {
   private resetMatchData() {
     this.fighters = this.createInitialFighters();
     this.positions = this.createInitialPositions();
+    this.aiStates = this.createInitialAIStates();
     this.attacks = this.createAttackMachines();
     this.positionSequences.clear();
     this.attackSequences.clear();
@@ -338,6 +388,15 @@ export class CombatRoom extends Room {
       'enemy-left': { x: -3, y: 0.9, z: 0 },
       'enemy-right': { x: 3, y: 0.9, z: 0 },
     };
+  }
+
+  private createInitialAIStates(): AIStateSnapshot[] {
+    return ['enemy-left', 'enemy-right'].map((id) => ({
+      id,
+      state: AIState.IDLE,
+      targetId: null,
+      position: { ...this.positions[id] },
+    }));
   }
 
   private createAttackMachines(): Record<string, AttackStateMachine> {

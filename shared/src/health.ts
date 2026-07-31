@@ -8,6 +8,7 @@ import {
   Team,
 } from './enums';
 import type { Vec3 } from './types';
+import type { AIStateSnapshot } from './ai';
 
 export interface HealthFighterState {
   id: string;
@@ -41,6 +42,7 @@ export interface CombatStateSnapshot extends TeamHealthEvaluation {
   /** 서버 경기 초기화 세대. 값이 바뀌면 클라이언트 물리 상태도 함께 초기화한다. */
   resetRevision?: number;
   fighters: Array<HealthFighterState & { position?: Vec3; attackId?: number }>;
+  aiStates: AIStateSnapshot[];
 }
 
 export interface CombatAssignmentMessage {

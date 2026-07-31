@@ -39,6 +39,12 @@ export const GAME_CONFIG = {
   DOWN_MOVE_PENALTY: 0.7,       // 팀원 다운 시 생존자 속도 감소율
   DOWN_DRAG_MAX_DIST: 2.5,      // 다운 파이터가 생존자에서 최대 뒤처질 거리 (m)
 
+  // AI 이동
+  AI_MOVE_SPEED: 2.5,           // 최소 AI 접근 속도 (m/s)
+  AI_MIN_SEPARATION: 0.9,       // 두 AI 사이 최소 거리 (m)
+  AI_SEPARATION_MAX_STEP: 0.05, // 한 tick에서 AI별 최대 분리 보정량 (m)
+  ARENA_POSITION_LIMIT: 9.5,    // 서버 좌표 검증 및 AI 이동 경계 (m)
+
   // 서버 틱
   SERVER_TICK_RATE: 30,         // 서버 시뮬레이션 (tick/s)
   SNAPSHOT_RATE: 20,            // 상태 전송 (회/s)

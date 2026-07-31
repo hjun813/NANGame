@@ -65,6 +65,7 @@ export enum RoomState {
 export enum AIState {
   IDLE = 'IDLE',
   APPROACH = 'APPROACH',
+  ATTACK_READY = 'ATTACK_READY',
   REPOSITION = 'REPOSITION',
   ATTACK = 'ATTACK',
   GUARD = 'GUARD',

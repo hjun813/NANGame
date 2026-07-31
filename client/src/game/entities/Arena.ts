@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@shared/constants';
 import {
+  AIState,
   FighterSlot,
   FighterState,
   GameState,
@@ -13,6 +14,7 @@ import { applyHealthDamage, evaluateTeamHealth } from '@shared/health';
 import type { CombatStateSnapshot } from '@shared/health';
 import { correctLinkedMovement, vec3Distance } from '@shared/linkCorrection';
 import { AttackStateMachine } from '@shared/combat';
+import type { AIStateSnapshot } from '@shared/ai';
 import type { Vec3 } from '@shared/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { PhysicsCharacter } from '../physics/PhysicsWorld';
@@ -187,6 +189,7 @@ export class Arena {
   public gameState: GameState = GameState.WAITING;
   public countdownRemaining = 0;
   public timeRemaining: number = GAME_CONFIG.MATCH_DURATION;
+  public aiStates: AIStateSnapshot[] = [];
   private serverResetRevision: number | null = null;
   private damageDispatcher:
     ((fighterId: string, damage: number) => boolean) | null = null;
@@ -231,6 +234,7 @@ export class Arena {
     this.enemyB = new Fighter(
       'enemy-right', 0xff7043, 3, physics, Team.AI, FighterSlot.RIGHT,
     );
+    this.aiStates = this.createInitialAIStates();
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach(f => scene.add(f.mesh));
     scene.add(this.fighterA.hitbox!, this.fighterB.hitbox!);
 
@@ -487,6 +491,13 @@ export class Arena {
       this.serverResetRevision = snapshot.resetRevision!;
     }
     const byId = new Map(snapshot.fighters.map((fighter) => [fighter.id, fighter]));
+    // 이전 서버 스냅샷과 연결돼도 기존 HP/위치 동기화 경로는 계속 처리한다.
+    const incomingAIStates = snapshot.aiStates ?? [];
+    const aiById = new Map(incomingAIStates.map((ai) => [ai.id, ai]));
+    this.aiStates = incomingAIStates.map((ai) => ({
+      ...ai,
+      position: { ...ai.position },
+    }));
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach((fighter) => {
       const authoritative = byId.get(fighter.id);
       if (authoritative) {
@@ -495,14 +506,16 @@ export class Arena {
           authoritative.state,
           authoritative.attackId,
         );
-        // 소유 캐릭터는 기존 Rapier 충돌 결과를 유지하고 원격 캐릭터만 따라간다.
+        const authoritativePosition = aiById.get(fighter.id)?.position ??
+          authoritative.position;
+        // 소유 플레이어는 로컬 Rapier 결과를 유지하고 AI/원격 캐릭터만 따라간다.
         if (
-          authoritative.position &&
+          authoritativePosition &&
           (serverResetChanged || fighter.id !== ownedFighterId)
         ) {
           fighter.prevPosition = { ...fighter.position };
-          fighter.position = { ...authoritative.position };
-          this.physics.teleportCharacter(fighter.physicsCharacter, authoritative.position);
+          fighter.position = { ...authoritativePosition };
+          this.physics.teleportCharacter(fighter.physicsCharacter, authoritativePosition);
         }
       }
     });
@@ -540,6 +553,16 @@ export class Arena {
     this.linkCorrectionFrames = 0;
     this.physicsCollisionCount = 0;
     this.matchResult = MatchResult.PLAYING;
+    this.aiStates = this.createInitialAIStates();
+  }
+
+  private createInitialAIStates(): AIStateSnapshot[] {
+    return [this.enemyA, this.enemyB].map((fighter) => ({
+      id: fighter.id,
+      state: AIState.IDLE,
+      targetId: null,
+      position: { ...fighter.position },
+    }));
   }
 
   private updateDownAndMatchState() {
