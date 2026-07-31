@@ -34,6 +34,12 @@ export interface CombatDamageMessage {
   hits: Array<{ fighterId: string; damage: number }>;
 }
 
+export interface DamageBatchResult {
+  fighters: HealthFighterState[];
+  evaluation: TeamHealthEvaluation;
+  appliedTargetIds: string[];
+}
+
 export interface CombatStateSnapshot extends TeamHealthEvaluation {
   revision: number;
   gameState: GameState;
@@ -129,6 +135,28 @@ export function evaluateTeamHealth(
     playerLinkState: player.linkState,
     enemyLinkState: enemy.linkState,
     result,
+  };
+}
+
+/** 같은 서버 tick의 피해를 모두 반영한 뒤 승패를 한 번만 평가한다. */
+export function applyDamageBatch(
+  fighters: readonly HealthFighterState[],
+  hits: ReadonlyArray<CombatDamageMessage['hits'][number]>,
+): DamageBatchResult {
+  const next = fighters.map((fighter) => ({ ...fighter }));
+  const appliedTargetIds: string[] = [];
+  for (const hit of hits) {
+    const index = next.findIndex((fighter) => fighter.id === hit.fighterId);
+    if (index < 0) continue;
+    const result = applyHealthDamage(next[index], hit.damage);
+    if (!result.applied) continue;
+    next[index] = result.fighter;
+    appliedTargetIds.push(hit.fighterId);
+  }
+  return {
+    fighters: next,
+    evaluation: evaluateTeamHealth(next),
+    appliedTargetIds,
   };
 }
 

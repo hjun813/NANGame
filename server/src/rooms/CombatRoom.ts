@@ -1,13 +1,17 @@
 import { Client, Room } from 'colyseus';
 import {
-  applyHealthDamage,
+  applyDamageBatch,
   AttackStateMachine,
+  attackStateToAIState,
+  canStartAIAttack,
+  createRetreatDirection,
   createHealthFighter,
   evaluateTeamHealth,
   evaluateTimeLimitResult,
   GAME_CONFIG,
   isBasicAttackHit,
   separateAIStates,
+  stepAIRetreat,
   stepAI,
 } from 'linked-fighters-shared';
 import {
@@ -28,6 +32,11 @@ import type {
   Vec3,
 } from 'linked-fighters-shared';
 
+interface AIRetreatRuntime {
+  direction: Vec3;
+  remainingTime: number;
+}
+
 /**
  * 체력/다운/승패의 서버 권한형 최소 구현.
  * 한 메시지의 hits를 전부 적용한 뒤 결과를 평가하여 같은 tick 동시 다운을 보존한다.
@@ -41,6 +50,7 @@ export class CombatRoom extends Room {
   private readonly positionSequences = new Map<FighterSlot, number>();
   private readonly attackSequences = new Map<FighterSlot, number>();
   private attacks = this.createAttackMachines();
+  private aiRetreats = this.createInitialAIRetreats();
   private revision = 0;
   private resetRevision = 0;
   private gameState = GameState.WAITING;
@@ -183,9 +193,14 @@ export class CombatRoom extends Room {
 
     if (this.gameState !== GameState.PLAYING) return;
 
-    this.updateAttacks(dt);
+    const pendingDamage: CombatDamageMessage['hits'] = [];
+    this.updatePlayerAttacks(dt, pendingDamage);
+    this.updateAI(dt, pendingDamage);
+    const evaluation = this.applyPendingDamage(pendingDamage);
+    if (evaluation.result !== MatchResult.PLAYING) {
+      this.finishMatch(evaluation.result);
+    }
     if (this.gameState === GameState.PLAYING) {
-      this.updateAI(dt);
       this.timeRemaining = Math.max(0, this.timeRemaining - dt);
       if (this.timeRemaining === 0) {
         this.finishMatch(evaluateTimeLimitResult(this.fighters));
@@ -195,29 +210,26 @@ export class CombatRoom extends Room {
     this.broadcastState();
   }
 
-  private updateAttacks(dt: number): boolean {
-    let stateChanged = false;
+  private updatePlayerAttacks(
+    dt: number,
+    pendingDamage: CombatDamageMessage['hits'],
+  ) {
     for (const attackerId of ['player-left', 'player-right']) {
       const fighter = this.fighters.find((candidate) => candidate.id === attackerId);
       const attack = this.attacks[attackerId];
       if (!fighter || fighter.state === 'DOWN') continue;
-      const previousState = attack.state;
       attack.update(dt);
       fighter.state = attack.state;
-      if (attack.state !== previousState) stateChanged = true;
-      if (previousState !== 'ATTACK_ACTIVE' && attack.state === 'ATTACK_ACTIVE') {
-        if (this.resolveServerAttack(attackerId, attack)) stateChanged = true;
+      if (attack.state === FighterState.ATTACK_ACTIVE) {
+        this.collectPlayerAttackHits(attackerId, attack, pendingDamage);
       }
     }
-    const result = evaluateTeamHealth(this.fighters).result;
-    if (result !== MatchResult.PLAYING) {
-      this.finishMatch(result);
-      stateChanged = true;
-    }
-    return stateChanged;
   }
 
-  private updateAI(dt: number) {
+  private updateAI(
+    dt: number,
+    pendingDamage: CombatDamageMessage['hits'],
+  ) {
     const playerCandidates = this.fighters
       .filter((fighter) => fighter.team === Team.PLAYER)
       .map((fighter) => ({
@@ -227,11 +239,109 @@ export class CombatRoom extends Room {
       }));
     const stepped = this.aiStates.map((ai) => {
       const fighter = this.fighters.find((candidate) => candidate.id === ai.id);
-      return stepAI(ai, playerCandidates, {
+      const attack = this.attacks[ai.id];
+      const retreat = this.aiRetreats[ai.id];
+      if (!fighter || fighter.state === FighterState.DOWN) {
+        attack.forceDown();
+        retreat.remainingTime = 0;
+        return { ...ai, state: AIState.IDLE, targetId: null };
+      }
+
+      if (ai.state === AIState.RETREAT && retreat.remainingTime > 0) {
+        const result = stepAIRetreat(
+          ai.position,
+          retreat.direction,
+          retreat.remainingTime,
+          dt,
+        );
+        retreat.remainingTime = result.remainingTime;
+        fighter.state = FighterState.NORMAL;
+        return {
+          ...ai,
+          state: result.remainingTime > 0 ? AIState.RETREAT : AIState.APPROACH,
+          targetId: result.remainingTime > 0 ? ai.targetId : null,
+          position: result.position,
+        };
+      }
+
+      const currentTarget = playerCandidates.find(
+        (candidate) => candidate.id === ai.targetId,
+      ) ?? null;
+      if (
+        attack.state !== FighterState.NORMAL &&
+        (!currentTarget || currentTarget.state === FighterState.DOWN)
+      ) {
+        attack.cancel();
+        fighter.state = FighterState.NORMAL;
+      }
+
+      if (attack.state !== FighterState.NORMAL) {
+        const target = currentTarget!;
+        const previousAttackState = attack.state;
+        attack.update(dt);
+        fighter.state = attack.state;
+        if (
+          attack.state === FighterState.ATTACK_ACTIVE &&
+          target.state !== FighterState.DOWN &&
+          isBasicAttackHit(
+            ai.position,
+            target.position,
+            {
+              x: target.position.x - ai.position.x,
+              z: target.position.z - ai.position.z,
+            },
+          ) &&
+          attack.registerHit(target.id)
+        ) {
+          pendingDamage.push({
+            fighterId: target.id,
+            damage: GAME_CONFIG.ATTACK_DAMAGE,
+          });
+        }
+
+        if (
+          previousAttackState === FighterState.ATTACK_RECOVERY &&
+          (attack.state as FighterState) === FighterState.NORMAL
+        ) {
+          retreat.direction = createRetreatDirection(
+            ai.id,
+            ai.position,
+            target.position,
+          );
+          retreat.remainingTime = GAME_CONFIG.AI_RETREAT_DURATION;
+          return { ...ai, state: AIState.RETREAT, targetId: target.id };
+        }
+        return {
+          ...ai,
+          state: attackStateToAIState(attack.state) ?? AIState.APPROACH,
+          targetId: target.id,
+        };
+      }
+
+      const moved = stepAI(ai, playerCandidates, {
         gameState: this.gameState,
-        fighterState: fighter?.state ?? FighterState.DOWN,
+        fighterState: fighter.state,
         deltaTime: dt,
       });
+      const target = playerCandidates.find(
+        (candidate) => candidate.id === moved.targetId,
+      ) ?? null;
+      if (
+        moved.state === AIState.ATTACK_READY &&
+        canStartAIAttack(
+          moved.position,
+          fighter.state,
+          target,
+          this.gameState,
+          attack.state,
+        ) &&
+        attack.tryStart()
+      ) {
+        fighter.state = attack.state;
+        return { ...moved, state: AIState.WINDUP };
+      }
+      fighter.state = FighterState.NORMAL;
+      return moved;
     });
     const fighterA = this.fighters.find((fighter) => fighter.id === stepped[0].id);
     const fighterB = this.fighters.find((fighter) => fighter.id === stepped[1].id);
@@ -245,9 +355,12 @@ export class CombatRoom extends Room {
     }
   }
 
-  private resolveServerAttack(attackerId: string, attack: AttackStateMachine): boolean {
+  private collectPlayerAttackHits(
+    attackerId: string,
+    attack: AttackStateMachine,
+    pendingDamage: CombatDamageMessage['hits'],
+  ) {
     const directionX: -1 | 1 = attackerId === 'player-left' ? -1 : 1;
-    let changed = false;
     for (const target of this.fighters.filter((fighter) => fighter.team === Team.AI)) {
       if (
         target.state === 'DOWN' ||
@@ -258,13 +371,11 @@ export class CombatRoom extends Room {
         ) ||
         !attack.registerHit(target.id)
       ) continue;
-      const index = this.fighters.findIndex((fighter) => fighter.id === target.id);
-      const result = applyHealthDamage(this.fighters[index], GAME_CONFIG.ATTACK_DAMAGE);
-      if (!result.applied) continue;
-      this.fighters[index] = result.fighter;
-      changed = true;
+      pendingDamage.push({
+        fighterId: target.id,
+        damage: GAME_CONFIG.ATTACK_DAMAGE,
+      });
     }
-    return changed;
   }
 
   private handleDamage(message: unknown) {
@@ -272,24 +383,36 @@ export class CombatRoom extends Room {
     if (!this.isDamageMessage(message)) return;
     if (this.matchResult !== MatchResult.PLAYING) return;
 
-    let changed = false;
-    for (const hit of message.hits) {
-      const index = this.fighters.findIndex(
-        (fighter) => fighter.id === hit.fighterId,
-      );
-      if (index < 0) continue;
-
-      const result = applyHealthDamage(this.fighters[index], hit.damage);
-      if (!result.applied) continue;
-      this.fighters[index] = result.fighter;
-      changed = true;
+    const evaluation = this.applyPendingDamage(message.hits);
+    if (evaluation.appliedTargetIds.length === 0) return;
+    if (evaluation.result !== MatchResult.PLAYING) {
+      this.finishMatch(evaluation.result);
     }
-
-    if (!changed) return;
-    const result = evaluateTeamHealth(this.fighters).result;
-    if (result !== MatchResult.PLAYING) this.finishMatch(result);
     this.revision++;
     this.broadcastState();
+  }
+
+  private applyPendingDamage(hits: CombatDamageMessage['hits']) {
+    const previousStates = new Map(
+      this.fighters.map((fighter) => [fighter.id, fighter.state]),
+    );
+    const batch = applyDamageBatch(this.fighters, hits);
+    this.fighters = batch.fighters;
+    for (const fighter of this.fighters) {
+      if (
+        previousStates.get(fighter.id) !== FighterState.DOWN &&
+        fighter.state === FighterState.DOWN
+      ) {
+        this.attacks[fighter.id]?.forceDown();
+        const ai = this.aiStates.find((candidate) => candidate.id === fighter.id);
+        if (ai) {
+          ai.state = AIState.IDLE;
+          ai.targetId = null;
+          this.aiRetreats[ai.id].remainingTime = 0;
+        }
+      }
+    }
+    return { ...batch.evaluation, appliedTargetIds: batch.appliedTargetIds };
   }
 
   private isDamageMessage(message: unknown): message is CombatDamageMessage {
@@ -363,6 +486,7 @@ export class CombatRoom extends Room {
     this.positions = this.createInitialPositions();
     this.aiStates = this.createInitialAIStates();
     this.attacks = this.createAttackMachines();
+    this.aiRetreats = this.createInitialAIRetreats();
     this.positionSequences.clear();
     this.attackSequences.clear();
     this.matchResult = MatchResult.PLAYING;
@@ -403,6 +527,21 @@ export class CombatRoom extends Room {
     return {
       'player-left': new AttackStateMachine(),
       'player-right': new AttackStateMachine(),
+      'enemy-left': new AttackStateMachine(),
+      'enemy-right': new AttackStateMachine(),
+    };
+  }
+
+  private createInitialAIRetreats(): Record<string, AIRetreatRuntime> {
+    return {
+      'enemy-left': {
+        direction: { x: -1, y: 0, z: 0 },
+        remainingTime: 0,
+      },
+      'enemy-right': {
+        direction: { x: 1, y: 0, z: 0 },
+        remainingTime: 0,
+      },
     };
   }
 }

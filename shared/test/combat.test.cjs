@@ -76,6 +76,20 @@ test('기본 공격은 공격 방향과 구체 사거리 안의 대상만 적중
   assert.equal(isBasicAttackHit(attacker, { x: -3, y: 0.9, z: 2 }, -1), false);
 });
 
+test('기본 공격은 XZ 평면의 임의 방향에서 서버 위치로 적중을 판정한다', () => {
+  const attacker = { x: 0, y: 0.9, z: 0 };
+  assert.equal(isBasicAttackHit(
+    attacker,
+    { x: 0, y: 0.9, z: 1.2 },
+    { x: 0, z: 1 },
+  ), true);
+  assert.equal(isBasicAttackHit(
+    attacker,
+    { x: 2, y: 0.9, z: 0 },
+    { x: 0, z: 1 },
+  ), false);
+});
+
 test('서버 공격 상태와 attackId를 클라이언트 표시 머신에 동기화한다', () => {
   const attack = new AttackStateMachine();
   attack.syncState(FighterState.ATTACK_ACTIVE, 7);

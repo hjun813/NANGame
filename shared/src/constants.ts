@@ -41,6 +41,8 @@ export const GAME_CONFIG = {
 
   // AI 이동
   AI_MOVE_SPEED: 2.5,           // 최소 AI 접근 속도 (m/s)
+  AI_RETREAT_SPEED: 3,          // 공격 후 후퇴 속도 (m/s)
+  AI_RETREAT_DURATION: 0.35,    // 공격 후 후퇴 시간 (초, 최대 약 1.05m)
   AI_MIN_SEPARATION: 0.9,       // 두 AI 사이 최소 거리 (m)
   AI_SEPARATION_MAX_STEP: 0.05, // 한 tick에서 AI별 최대 분리 보정량 (m)
   ARENA_POSITION_LIMIT: 9.5,    // 서버 좌표 검증 및 AI 이동 경계 (m)

@@ -8,13 +8,19 @@ const HITBOX_RADIUS = 0.4;
 export function isBasicAttackHit(
   attackerPosition: Vec3,
   targetPosition: Vec3,
-  directionX: -1 | 1,
+  direction: -1 | 1 | Pick<Vec3, 'x' | 'z'>,
 ): boolean {
   const hitboxOffset = GAME_CONFIG.ATTACK_RANGE - HITBOX_RADIUS;
-  const dx = targetPosition.x - (attackerPosition.x + directionX * hitboxOffset);
-  const dy = targetPosition.y - attackerPosition.y;
-  const dz = targetPosition.z - attackerPosition.z;
-  return Math.hypot(dx, dy, dz) <= HITBOX_RADIUS + GAME_CONFIG.FIGHTER_RADIUS;
+  const rawX = typeof direction === 'number' ? direction : direction.x;
+  const rawZ = typeof direction === 'number' ? 0 : direction.z;
+  const length = Math.hypot(rawX, rawZ);
+  const directionX = length > 0 ? rawX / length : 1;
+  const directionZ = length > 0 ? rawZ / length : 0;
+  const dx = targetPosition.x -
+    (attackerPosition.x + directionX * hitboxOffset);
+  const dz = targetPosition.z -
+    (attackerPosition.z + directionZ * hitboxOffset);
+  return Math.hypot(dx, dz) <= HITBOX_RADIUS + GAME_CONFIG.FIGHTER_RADIUS;
 }
 
 /**

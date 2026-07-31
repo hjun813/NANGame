@@ -11,6 +11,11 @@ export interface AIStateSnapshot {
   position: Vec3;
 }
 
+export interface AIRetreatStep {
+  position: Vec3;
+  remainingTime: number;
+}
+
 export interface AITargetCandidate {
   id: string;
   state: FighterState;
@@ -50,6 +55,70 @@ export function clampToArena(position: Vec3, limit: number): Vec3 {
     x: Math.max(-limit, Math.min(limit, position.x)),
     y: position.y,
     z: Math.max(-limit, Math.min(limit, position.z)),
+  };
+}
+
+export function canStartAIAttack(
+  aiPosition: Vec3,
+  fighterState: FighterState,
+  target: AITargetCandidate | null,
+  gameState: GameState,
+  attackState: FighterState,
+  attackDistance = GAME_CONFIG.ATTACK_RANGE,
+): boolean {
+  if (
+    gameState !== GameState.PLAYING ||
+    fighterState === FighterState.DOWN ||
+    attackState !== FighterState.NORMAL ||
+    !target ||
+    target.state === FighterState.DOWN
+  ) return false;
+  return Math.sqrt(distanceSquared(aiPosition, target.position)) <=
+    attackDistance + DISTANCE_EPSILON;
+}
+
+export function attackStateToAIState(state: FighterState): AIState | null {
+  if (state === FighterState.ATTACK_WINDUP) return AIState.WINDUP;
+  if (state === FighterState.ATTACK_ACTIVE) return AIState.ACTIVE;
+  if (state === FighterState.ATTACK_RECOVERY) return AIState.RECOVERY;
+  return null;
+}
+
+/** 마지막 공격 대상의 반대 방향. 동일 좌표는 AI ID로 결정적인 X축 방향을 선택한다. */
+export function createRetreatDirection(
+  aiId: string,
+  aiPosition: Vec3,
+  targetPosition: Vec3,
+): Vec3 {
+  let x = aiPosition.x - targetPosition.x;
+  let z = aiPosition.z - targetPosition.z;
+  const length = Math.hypot(x, z);
+  if (length <= DISTANCE_EPSILON) {
+    x = aiId < 'enemy-right' ? -1 : 1;
+    z = 0;
+    return { x, y: 0, z };
+  }
+  return { x: x / length, y: 0, z: z / length };
+}
+
+export function stepAIRetreat(
+  position: Vec3,
+  direction: Vec3,
+  remainingTime: number,
+  deltaTime: number,
+  speed = GAME_CONFIG.AI_RETREAT_SPEED,
+  arenaLimit = GAME_CONFIG.ARENA_POSITION_LIMIT,
+): AIRetreatStep {
+  const dt = Number.isFinite(deltaTime)
+    ? Math.min(Math.max(0, deltaTime), Math.max(0, remainingTime))
+    : 0;
+  return {
+    position: clampToArena({
+      x: position.x + direction.x * speed * dt,
+      y: position.y,
+      z: position.z + direction.z * speed * dt,
+    }, arenaLimit),
+    remainingTime: Math.max(0, remainingTime - dt),
   };
 }
 

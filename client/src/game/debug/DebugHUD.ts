@@ -48,6 +48,9 @@ export class DebugHUD {
       : GAME_CONFIG.LINK_NORMAL_MAX_DIST;
     const linkPct = Math.round((arena.linkDistance / linkMax) * 100);
     const stateColor = arena.linkTensionState === LinkTensionState.RELAXED ? '#69f0ae' : '#ff5252';
+    const aiDebug = arena.aiStates
+      .map((ai) => `${ai.id}: ${ai.state} → ${ai.targetId ?? '-'}`)
+      .join('<br>');
 
     this.el.innerHTML = `
       <b style="color:#ffd54f">🎮 Sprint 0 Debug</b><br>
@@ -65,6 +68,7 @@ export class DebugHUD {
       ─────────────────<br>
       Player: ${arena.fighterA.hp} [${arena.fighterA.state}] / ${arena.fighterB.hp} [${arena.fighterB.state}]<br>
       Enemy: ${arena.enemyA.hp} [${arena.enemyA.state}] / ${arena.enemyB.hp} [${arena.enemyB.state}]<br>
+      ${aiDebug}<br>
       Enemy link: ${arena.enemyLinkState}<br>
       Result: <b style="color:${arena.matchResult === MatchResult.PLAYING ? '#69f0ae' : '#ff5252'}">${arena.matchResult}</b><br>
       ─────────────────<br>

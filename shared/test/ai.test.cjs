@@ -1,9 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  attackStateToAIState,
+  canStartAIAttack,
   clampToArena,
+  createRetreatDirection,
   selectNearestLivingTarget,
   separateAIStates,
+  stepAIRetreat,
   stepAI,
 } = require('../dist/ai.js');
 const { AIState, FighterState, GameState } = require('../dist/enums.js');
@@ -139,4 +143,66 @@ test('DOWN AI는 PLAYING 중에도 이동하지 않는다', () => {
   });
   assert.equal(result.state, AIState.IDLE);
   assert.deepEqual(result.position, initial.position);
+});
+
+test('PLAYING, 생존 AI, 정상 공격 상태, 사거리 안 타깃에서만 공격을 시작한다', () => {
+  const target = player('player-left', 1);
+  assert.equal(canStartAIAttack(
+    position(0), FighterState.NORMAL, target,
+    GameState.PLAYING, FighterState.NORMAL,
+  ), true);
+  assert.equal(canStartAIAttack(
+    position(0), FighterState.NORMAL, target,
+    GameState.COUNTDOWN, FighterState.NORMAL,
+  ), false);
+  assert.equal(canStartAIAttack(
+    position(0), FighterState.DOWN, target,
+    GameState.PLAYING, FighterState.NORMAL,
+  ), false);
+  assert.equal(canStartAIAttack(
+    position(0), FighterState.NORMAL, null,
+    GameState.PLAYING, FighterState.NORMAL,
+  ), false);
+  assert.equal(canStartAIAttack(
+    position(0), FighterState.NORMAL, player('player-left', 3),
+    GameState.PLAYING, FighterState.NORMAL,
+  ), false);
+  assert.equal(canStartAIAttack(
+    position(0), FighterState.NORMAL, target,
+    GameState.PLAYING, FighterState.ATTACK_RECOVERY,
+  ), false);
+});
+
+test('공격 머신 상태를 AI WINDUP, ACTIVE, RECOVERY 상태로 변환한다', () => {
+  assert.equal(attackStateToAIState(FighterState.ATTACK_WINDUP), AIState.WINDUP);
+  assert.equal(attackStateToAIState(FighterState.ATTACK_ACTIVE), AIState.ACTIVE);
+  assert.equal(attackStateToAIState(FighterState.ATTACK_RECOVERY), AIState.RECOVERY);
+  assert.equal(attackStateToAIState(FighterState.NORMAL), null);
+});
+
+test('후퇴 방향은 마지막 타깃의 반대 방향이다', () => {
+  assert.deepEqual(
+    createRetreatDirection('enemy-left', position(0), position(1)),
+    { x: -1, y: 0, z: 0 },
+  );
+});
+
+test('동일 좌표 후퇴 방향도 결정적이고 NaN이 아니다', () => {
+  const left = createRetreatDirection('enemy-left', position(0), position(0));
+  const right = createRetreatDirection('enemy-right', position(0), position(0));
+  assert.deepEqual(left, { x: -1, y: 0, z: 0 });
+  assert.deepEqual(right, { x: 1, y: 0, z: 0 });
+});
+
+test('후퇴는 delta time에 따라 이동하고 경기장 경계를 넘지 않는다', () => {
+  const moved = stepAIRetreat(
+    position(0), { x: -1, y: 0, z: 0 }, 0.35, 0.1, 3, 9.5,
+  );
+  assert.ok(Math.abs(moved.position.x + 0.3) < 1e-9);
+  assert.ok(Math.abs(moved.remainingTime - 0.25) < 1e-9);
+
+  const clamped = stepAIRetreat(
+    position(9.45), { x: 1, y: 0, z: 0 }, 0.35, 0.1, 3, 9.5,
+  );
+  assert.equal(clamped.position.x, 9.5);
 });

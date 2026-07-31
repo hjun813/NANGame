@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   applyHealthDamage,
+  applyDamageBatch,
   createHealthFighter,
   evaluateTeamHealth,
   evaluateTimeLimitResult,
@@ -92,4 +93,44 @@ test('생존자 수와 HP 합이 같으면 시간 종료 결과는 무승부다'
   ];
 
   assert.equal(evaluateTimeLimitResult(fighters), MatchResult.DRAW);
+});
+
+test('tick 피해 배치는 한 플레이어만 DOWN이면 경기를 계속한다', () => {
+  const fighters = [
+    fighter('pa', Team.PLAYER, FighterSlot.LEFT),
+    fighter('pb', Team.PLAYER, FighterSlot.RIGHT),
+    fighter('ea', Team.AI, FighterSlot.LEFT),
+    fighter('eb', Team.AI, FighterSlot.RIGHT),
+  ];
+  const batch = applyDamageBatch(fighters, [{ fighterId: 'pa', damage: 999 }]);
+  assert.equal(batch.fighters.find((item) => item.id === 'pa').hp, 0);
+  assert.equal(batch.evaluation.result, MatchResult.PLAYING);
+});
+
+test('tick 피해 배치는 두 플레이어가 DOWN이면 PLAYER_LOSE다', () => {
+  const fighters = [
+    fighter('pa', Team.PLAYER, FighterSlot.LEFT),
+    fighter('pb', Team.PLAYER, FighterSlot.RIGHT),
+    fighter('ea', Team.AI, FighterSlot.LEFT),
+    fighter('eb', Team.AI, FighterSlot.RIGHT),
+  ];
+  const batch = applyDamageBatch(fighters, [
+    { fighterId: 'pa', damage: 999 },
+    { fighterId: 'pb', damage: 999 },
+  ]);
+  assert.equal(batch.evaluation.result, MatchResult.PLAYER_LOSE);
+});
+
+test('같은 tick 피해로 양 팀이 전멸하면 DRAW를 보존한다', () => {
+  const fighters = [
+    fighter('pa', Team.PLAYER, FighterSlot.LEFT),
+    fighter('pb', Team.PLAYER, FighterSlot.RIGHT),
+    fighter('ea', Team.AI, FighterSlot.LEFT),
+    fighter('eb', Team.AI, FighterSlot.RIGHT),
+  ];
+  const batch = applyDamageBatch(fighters, fighters.map((item) => ({
+    fighterId: item.id,
+    damage: 999,
+  })));
+  assert.equal(batch.evaluation.result, MatchResult.DRAW);
 });
