@@ -4,6 +4,7 @@ const {
   applyHealthDamage,
   createHealthFighter,
   evaluateTeamHealth,
+  evaluateTimeLimitResult,
 } = require('../dist/health.js');
 const {
   FighterSlot,
@@ -58,4 +59,37 @@ test('같은 판정 시점에 양 팀이 모두 다운이면 무승부다', () =
   ].map((item) => applyHealthDamage(item, 100).fighter);
 
   assert.equal(evaluateTeamHealth(fighters).result, MatchResult.DRAW);
+});
+
+test('시간 종료는 생존자 수를 HP 합보다 먼저 비교한다', () => {
+  const fighters = [
+    fighter('pa', Team.PLAYER, FighterSlot.LEFT),
+    applyHealthDamage(fighter('pb', Team.PLAYER, FighterSlot.RIGHT), 100).fighter,
+    applyHealthDamage(fighter('ea', Team.AI, FighterSlot.LEFT), 90).fighter,
+    applyHealthDamage(fighter('eb', Team.AI, FighterSlot.RIGHT), 90).fighter,
+  ];
+
+  assert.equal(evaluateTimeLimitResult(fighters), MatchResult.PLAYER_LOSE);
+});
+
+test('생존자 수가 같으면 HP 합으로 시간 종료 결과를 정한다', () => {
+  const fighters = [
+    applyHealthDamage(fighter('pa', Team.PLAYER, FighterSlot.LEFT), 10).fighter,
+    fighter('pb', Team.PLAYER, FighterSlot.RIGHT),
+    applyHealthDamage(fighter('ea', Team.AI, FighterSlot.LEFT), 30).fighter,
+    fighter('eb', Team.AI, FighterSlot.RIGHT),
+  ];
+
+  assert.equal(evaluateTimeLimitResult(fighters), MatchResult.PLAYER_WIN);
+});
+
+test('생존자 수와 HP 합이 같으면 시간 종료 결과는 무승부다', () => {
+  const fighters = [
+    fighter('pa', Team.PLAYER, FighterSlot.LEFT),
+    fighter('pb', Team.PLAYER, FighterSlot.RIGHT),
+    fighter('ea', Team.AI, FighterSlot.LEFT),
+    fighter('eb', Team.AI, FighterSlot.RIGHT),
+  ];
+
+  assert.equal(evaluateTimeLimitResult(fighters), MatchResult.DRAW);
 });

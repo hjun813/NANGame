@@ -1,5 +1,12 @@
 import { GAME_CONFIG } from './constants';
-import { FighterSlot, FighterState, LinkState, MatchResult, Team } from './enums';
+import {
+  FighterSlot,
+  FighterState,
+  GameState,
+  LinkState,
+  MatchResult,
+  Team,
+} from './enums';
 import type { Vec3 } from './types';
 
 export interface HealthFighterState {
@@ -28,6 +35,9 @@ export interface CombatDamageMessage {
 
 export interface CombatStateSnapshot extends TeamHealthEvaluation {
   revision: number;
+  gameState: GameState;
+  countdownRemaining: number;
+  timeRemaining: number;
   /** 서버 경기 초기화 세대. 값이 바뀌면 클라이언트 물리 상태도 함께 초기화한다. */
   resetRevision?: number;
   fighters: Array<HealthFighterState & { position?: Vec3; attackId?: number }>;
@@ -118,4 +128,31 @@ export function evaluateTeamHealth(
     enemyLinkState: enemy.linkState,
     result,
   };
+}
+
+/** 제한 시간 종료 시 생존 파이터 수, 팀 HP 합 순서로 결과를 판정한다. */
+export function evaluateTimeLimitResult(
+  fighters: readonly HealthFighterState[],
+): MatchResult {
+  const summarize = (team: Team) => {
+    const members = fighters.filter((fighter) => fighter.team === team);
+    return {
+      survivors: members.filter((fighter) => fighter.state !== FighterState.DOWN).length,
+      hp: members.reduce((sum, fighter) => sum + fighter.hp, 0),
+    };
+  };
+
+  const player = summarize(Team.PLAYER);
+  const enemy = summarize(Team.AI);
+  if (player.survivors !== enemy.survivors) {
+    return player.survivors > enemy.survivors
+      ? MatchResult.PLAYER_WIN
+      : MatchResult.PLAYER_LOSE;
+  }
+  if (player.hp !== enemy.hp) {
+    return player.hp > enemy.hp
+      ? MatchResult.PLAYER_WIN
+      : MatchResult.PLAYER_LOSE;
+  }
+  return MatchResult.DRAW;
 }

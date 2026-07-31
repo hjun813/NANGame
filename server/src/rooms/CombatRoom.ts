@@ -4,12 +4,14 @@ import {
   AttackStateMachine,
   createHealthFighter,
   evaluateTeamHealth,
+  evaluateTimeLimitResult,
   GAME_CONFIG,
   isBasicAttackHit,
 } from 'linked-fighters-shared';
 import {
   EVENTS,
   FighterSlot,
+  GameState,
   MatchResult,
   Team,
 } from 'linked-fighters-shared';
@@ -36,6 +38,10 @@ export class CombatRoom extends Room {
   private attacks = this.createAttackMachines();
   private revision = 0;
   private resetRevision = 0;
+  private gameState = GameState.WAITING;
+  private countdownRemaining = 0;
+  private timeRemaining: number = GAME_CONFIG.MATCH_DURATION;
+  private matchResult = MatchResult.PLAYING;
 
   onCreate() {
     // COMBAT_DAMAGE는 그레이박스 수동 테스트 전용이다.
@@ -45,11 +51,10 @@ export class CombatRoom extends Room {
       (_client, message: unknown) => this.handleDamage(message),
     );
     this.onMessage(EVENTS.COMBAT_RESET, () => {
-      this.fighters = this.createInitialFighters();
-      this.positions = this.createInitialPositions();
-      this.attacks = this.createAttackMachines();
-      this.resetRevision++;
-      this.revision++;
+      this.resetMatchData();
+      if (this.assignments.size === this.maxClients) {
+        this.startCountdown();
+      }
       this.broadcastState();
     });
     this.onMessage(EVENTS.COMBAT_POSITION, (client, message: unknown) => {
@@ -63,7 +68,7 @@ export class CombatRoom extends Room {
       client.send(EVENTS.COMBAT_STATE, this.createStateMessage());
     });
     this.setSimulationInterval((deltaTime) => {
-      this.updateAttacks(Math.min(deltaTime / 1000, 0.1));
+      this.updateMatch(Math.min(deltaTime / 1000, 0.1));
     }, 1000 / GAME_CONFIG.SERVER_TICK_RATE);
   }
 
@@ -74,7 +79,10 @@ export class CombatRoom extends Room {
       : FighterSlot.LEFT;
     this.assignments.set(client.sessionId, slot);
     this.sendAssignment(client);
-    client.send(EVENTS.COMBAT_STATE, this.createStateMessage());
+    if (this.assignments.size === this.maxClients) {
+      this.startCountdown();
+    }
+    this.broadcastState();
   }
 
   onLeave(client: Client) {
@@ -82,6 +90,10 @@ export class CombatRoom extends Room {
     if (slot) this.positionSequences.delete(slot);
     if (slot) this.attackSequences.delete(slot);
     this.assignments.delete(client.sessionId);
+    this.resetMatchData();
+    this.gameState = GameState.WAITING;
+    this.countdownRemaining = 0;
+    this.broadcastState();
   }
 
   private sendAssignment(client: Client) {
@@ -94,6 +106,7 @@ export class CombatRoom extends Room {
   }
 
   private handlePosition(client: Client, message: unknown) {
+    if (this.gameState !== GameState.PLAYING) return;
     const slot = this.assignments.get(client.sessionId);
     if (!slot || !this.isPositionMessage(message)) return;
     const previousSequence = this.positionSequences.get(slot) ?? -1;
@@ -120,6 +133,7 @@ export class CombatRoom extends Room {
   }
 
   private handleAttack(client: Client, message: unknown) {
+    if (this.gameState !== GameState.PLAYING) return;
     const slot = this.assignments.get(client.sessionId);
     if (!slot || !this.isAttackMessage(message)) return;
     const attackerId = slot === FighterSlot.LEFT ? 'player-left' : 'player-right';
@@ -127,7 +141,7 @@ export class CombatRoom extends Room {
     const previousSequence = this.attackSequences.get(slot) ?? -1;
     if (message.sequence <= previousSequence) return;
     this.attackSequences.set(slot, message.sequence);
-    if (evaluateTeamHealth(this.fighters).result !== MatchResult.PLAYING) return;
+    if (this.matchResult !== MatchResult.PLAYING) return;
     const fighter = this.fighters.find((candidate) => candidate.id === attackerId);
     const attack = this.attacks[attackerId];
     if (!fighter || fighter.state === 'DOWN' || !attack.tryStart()) return;
@@ -143,7 +157,33 @@ export class CombatRoom extends Room {
       typeof candidate.attackerId === 'string';
   }
 
-  private updateAttacks(dt: number) {
+  private updateMatch(dt: number) {
+    if (this.gameState === GameState.COUNTDOWN) {
+      this.countdownRemaining = Math.max(0, this.countdownRemaining - dt);
+      if (this.countdownRemaining === 0) {
+        if (this.assignments.size !== this.maxClients) {
+          this.gameState = GameState.WAITING;
+        } else {
+          this.gameState = GameState.PLAYING;
+        }
+      }
+      this.revision++;
+      this.broadcastState();
+      return;
+    }
+
+    if (this.gameState !== GameState.PLAYING) return;
+
+    this.updateAttacks(dt);
+    this.timeRemaining = Math.max(0, this.timeRemaining - dt);
+    if (this.timeRemaining === 0) {
+      this.finishMatch(evaluateTimeLimitResult(this.fighters));
+    }
+    this.revision++;
+    this.broadcastState();
+  }
+
+  private updateAttacks(dt: number): boolean {
     let stateChanged = false;
     for (const attackerId of ['player-left', 'player-right']) {
       const fighter = this.fighters.find((candidate) => candidate.id === attackerId);
@@ -157,9 +197,12 @@ export class CombatRoom extends Room {
         if (this.resolveServerAttack(attackerId, attack)) stateChanged = true;
       }
     }
-    if (!stateChanged) return;
-    this.revision++;
-    this.broadcastState();
+    const result = evaluateTeamHealth(this.fighters).result;
+    if (result !== MatchResult.PLAYING) {
+      this.finishMatch(result);
+      stateChanged = true;
+    }
+    return stateChanged;
   }
 
   private resolveServerAttack(attackerId: string, attack: AttackStateMachine): boolean {
@@ -185,8 +228,9 @@ export class CombatRoom extends Room {
   }
 
   private handleDamage(message: unknown) {
+    if (this.gameState !== GameState.PLAYING) return;
     if (!this.isDamageMessage(message)) return;
-    if (evaluateTeamHealth(this.fighters).result !== MatchResult.PLAYING) return;
+    if (this.matchResult !== MatchResult.PLAYING) return;
 
     let changed = false;
     for (const hit of message.hits) {
@@ -202,6 +246,8 @@ export class CombatRoom extends Room {
     }
 
     if (!changed) return;
+    const result = evaluateTeamHealth(this.fighters).result;
+    if (result !== MatchResult.PLAYING) this.finishMatch(result);
     this.revision++;
     this.broadcastState();
   }
@@ -228,6 +274,9 @@ export class CombatRoom extends Room {
     const evaluation = evaluateTeamHealth(this.fighters);
     return {
       revision: this.revision,
+      gameState: this.gameState,
+      countdownRemaining: this.countdownRemaining,
+      timeRemaining: this.timeRemaining,
       resetRevision: this.resetRevision,
       fighters: this.fighters.map((fighter) => ({
         ...fighter,
@@ -236,8 +285,41 @@ export class CombatRoom extends Room {
       })),
       playerLinkState: evaluation.playerLinkState,
       enemyLinkState: evaluation.enemyLinkState,
-      result: evaluation.result,
+      result: this.matchResult,
     };
+  }
+
+  private startCountdown() {
+    this.gameState = GameState.COUNTDOWN;
+    this.countdownRemaining = GAME_CONFIG.COUNTDOWN_DURATION;
+    this.timeRemaining = GAME_CONFIG.MATCH_DURATION;
+    this.matchResult = MatchResult.PLAYING;
+    this.revision++;
+  }
+
+  private finishMatch(result: MatchResult) {
+    if (result === MatchResult.PLAYING) return;
+    this.matchResult = result;
+    this.gameState = GameState.FINISHED;
+    for (const fighter of this.fighters) {
+      if (fighter.state === 'DOWN') continue;
+      const attack = this.attacks[fighter.id];
+      attack?.cancel();
+      if (attack) fighter.state = attack.state;
+    }
+  }
+
+  private resetMatchData() {
+    this.fighters = this.createInitialFighters();
+    this.positions = this.createInitialPositions();
+    this.attacks = this.createAttackMachines();
+    this.positionSequences.clear();
+    this.attackSequences.clear();
+    this.matchResult = MatchResult.PLAYING;
+    this.timeRemaining = GAME_CONFIG.MATCH_DURATION;
+    this.countdownRemaining = 0;
+    this.resetRevision++;
+    this.revision++;
   }
 
   private createInitialFighters(): HealthFighterState[] {

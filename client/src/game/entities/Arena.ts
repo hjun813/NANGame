@@ -3,6 +3,7 @@ import { GAME_CONFIG } from '@shared/constants';
 import {
   FighterSlot,
   FighterState,
+  GameState,
   LinkState,
   LinkTensionState,
   MatchResult,
@@ -183,6 +184,9 @@ export class Arena {
   public physicsCollisionCount = 0;
   public enemyLinkState: LinkState = LinkState.ARM_LOCK;
   public matchResult: MatchResult = MatchResult.PLAYING;
+  public gameState: GameState = GameState.WAITING;
+  public countdownRemaining = 0;
+  public timeRemaining: number = GAME_CONFIG.MATCH_DURATION;
   private serverResetRevision: number | null = null;
   private damageDispatcher:
     ((fighterId: string, damage: number) => boolean) | null = null;
@@ -259,7 +263,8 @@ export class Arena {
     attackB: boolean,
     dt: number,
   ) {
-    const matchFinished = this.matchResult !== MatchResult.PLAYING;
+    const matchFinished = this.gameState !== GameState.PLAYING ||
+      this.matchResult !== MatchResult.PLAYING;
     const playerDownCount = Number(this.fighterA.isDown) + Number(this.fighterB.isDown);
     const isDragging = playerDownCount === 1;
     const speed = GAME_CONFIG.FIGHTER_MOVE_SPEED *
@@ -431,6 +436,7 @@ export class Arena {
     if (!fighter.hitbox) return;
     fighter.hitbox.visible =
       !fighter.isDown &&
+      this.gameState === GameState.PLAYING &&
       this.matchResult === MatchResult.PLAYING &&
       fighter.attack.state === FighterState.ATTACK_ACTIVE;
     fighter.hitbox.position.set(
@@ -449,7 +455,10 @@ export class Arena {
     damage: number,
     deferMatchEvaluation = false,
   ): boolean {
-    if (this.matchResult !== MatchResult.PLAYING) return false;
+    if (
+      this.gameState !== GameState.PLAYING ||
+      this.matchResult !== MatchResult.PLAYING
+    ) return false;
     const applied = fighter.takeDamage(damage);
     if (!deferMatchEvaluation) this.updateDownAndMatchState();
     return applied;
@@ -499,8 +508,14 @@ export class Arena {
     });
     this.linkState = snapshot.playerLinkState;
     this.enemyLinkState = snapshot.enemyLinkState;
+    this.gameState = snapshot.gameState;
+    this.countdownRemaining = snapshot.countdownRemaining;
+    this.timeRemaining = snapshot.timeRemaining;
     this.matchResult = snapshot.result;
-    if (this.matchResult !== MatchResult.PLAYING) {
+    if (
+      this.gameState !== GameState.PLAYING ||
+      this.matchResult !== MatchResult.PLAYING
+    ) {
       [this.fighterA, this.fighterB, this.enemyA, this.enemyB]
         .forEach((fighter) => fighter.attack.cancel());
     }
