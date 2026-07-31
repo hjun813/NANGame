@@ -26,6 +26,8 @@ class Fighter {
   hp: number = GAME_CONFIG.FIGHTER_MAX_HP;
   knockbackVelocity: Vec3 = { x: 0, y: 0, z: 0 };
   hitStunRemaining = 0;
+  private readonly initialPosition: Vec3;
+  private readonly initialColor: number;
 
   constructor(
     id: string,
@@ -35,11 +37,13 @@ class Fighter {
     hasAttackHitbox = false,
   ) {
     this.id = id;
+    this.initialColor = color;
     const geo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
     const mat = new THREE.MeshStandardMaterial({ color });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.castShadow = true;
     this.position = { x: startX, y: 0.9, z: 0 };
+    this.initialPosition = { ...this.position };
     this.prevPosition = { ...this.position };
     this.physicsCharacter = physics.createCharacter(this.position);
     this.mesh.position.set(startX, 0.9, 0);
@@ -82,6 +86,24 @@ class Fighter {
       (this.mesh.material as THREE.MeshStandardMaterial).color.setHex(0x555555);
     }
     return true;
+  }
+
+  reset(physics: PhysicsWorld) {
+    this.hp = GAME_CONFIG.FIGHTER_MAX_HP;
+    this.attack.reset();
+    this.hitStunRemaining = 0;
+    this.knockbackVelocity = { x: 0, y: 0, z: 0 };
+    this.position = { ...this.initialPosition };
+    this.prevPosition = { ...this.initialPosition };
+    physics.teleportCharacter(this.physicsCharacter, this.initialPosition);
+    this.mesh.position.set(
+      this.initialPosition.x,
+      this.initialPosition.y,
+      this.initialPosition.z,
+    );
+    (this.mesh.material as THREE.MeshStandardMaterial)
+      .color.setHex(this.initialColor);
+    if (this.hitbox) this.hitbox.visible = false;
   }
 
   /** 렌더 프레임 보간 (alpha: 0~1) */
@@ -374,6 +396,21 @@ export class Arena {
   /** 같은 tick 피해를 모두 defer한 뒤 한 번 호출하면 동시 다운을 판정할 수 있다. */
   evaluateMatchState() {
     this.updateDownAndMatchState();
+  }
+
+  /** 그레이박스 반복 검증을 위해 경기 상태와 물리 위치를 초기 상태로 복구한다. */
+  resetMatch() {
+    [this.fighterA, this.fighterB, this.enemyA, this.enemyB]
+      .forEach((fighter) => fighter.reset(this.physics));
+    this.linkState = LinkState.ARM_LOCK;
+    this.enemyLinkState = LinkState.ARM_LOCK;
+    this.linkTensionState = LinkTensionState.RELAXED;
+    this.linkDistance = GAME_CONFIG.LINK_NORMAL_MAX_DIST;
+    this.maxObservedLinkDistance = 0;
+    this.linkViolationFrames = 0;
+    this.linkCorrectionFrames = 0;
+    this.physicsCollisionCount = 0;
+    this.matchResult = 'PLAYING';
   }
 
   private updateDownAndMatchState() {

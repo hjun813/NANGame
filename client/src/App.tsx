@@ -4,6 +4,7 @@ import { GameScene } from './game/core/GameScene';
 import { Arena } from './game/entities/Arena';
 import { InputManager } from './game/input/InputManager';
 import { DebugHUD } from './game/debug/DebugHUD';
+import { DebugControlPanel } from './game/debug/DebugControlPanel';
 import { NetworkSpike } from './game/network/NetworkSpike';
 
 // 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
@@ -23,6 +24,7 @@ export function App() {
     const hud       = new DebugHUD();
     const network   = new NetworkSpike();
     let arena: Arena | null = null;
+    let debugControls: DebugControlPanel | null = null;
     let cancelled = false;
 
     // 카메라 부드러운 추적용 현재 목표 위치
@@ -37,6 +39,7 @@ export function App() {
         }
         arena = createdArena;
         const activeArena = createdArena;
+        debugControls = new DebugControlPanel(activeArena);
         gameScene.start(
       // ── fixed update (1/60s) ──────────────
       (dt) => {
@@ -78,6 +81,7 @@ export function App() {
       gameScene.dispose();
       arena?.dispose();
       hud.dispose();
+      debugControls?.dispose();
       input.dispose();
       network.dispose();
     };

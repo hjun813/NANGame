@@ -36,6 +36,13 @@ export class AttackStateMachine {
     this.hitTargets.clear();
   }
 
+  /** 재경기/그레이박스 초기화 시 DOWN을 포함한 모든 상태를 초기화한다. */
+  reset() {
+    this.state = FighterState.NORMAL;
+    this.remaining = 0;
+    this.hitTargets.clear();
+  }
+
   update(dt: number) {
     if (
       this.state !== FighterState.ATTACK_WINDUP &&

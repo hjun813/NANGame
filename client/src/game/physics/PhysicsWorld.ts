@@ -113,6 +113,13 @@ export class PhysicsWorld {
     return collisions;
   }
 
+  /** 경기 초기화처럼 충돌 보정 없이 캡슐을 지정 위치로 되돌린다. */
+  teleportCharacter(character: PhysicsCharacter, target: Vec3) {
+    this.assertActive();
+    character.body.setTranslation(target, true);
+    character.body.setNextKinematicTranslation(target);
+  }
+
   step(dt: number) {
     this.assertActive();
     this.world.timestep = dt;
