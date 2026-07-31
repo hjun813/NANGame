@@ -49,6 +49,7 @@ export interface CombatStateSnapshot extends TeamHealthEvaluation {
   resetRevision?: number;
   fighters: Array<HealthFighterState & { position?: Vec3; attackId?: number }>;
   aiStates: AIStateSnapshot[];
+  rematchReady: Record<FighterSlot, boolean>;
 }
 
 export interface CombatAssignmentMessage {
@@ -59,12 +60,14 @@ export interface CombatAssignmentMessage {
 export interface CombatPositionMessage {
   sequence: number;
   position: Vec3;
+  resetRevision?: number;
 }
 
 /** 실제 공격 요청. 대상과 피해량은 서버가 결정한다. */
 export interface CombatAttackMessage {
   sequence: number;
   attackerId: string;
+  resetRevision?: number;
 }
 
 export function createHealthFighter(

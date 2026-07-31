@@ -5,11 +5,35 @@ const {
   canStartAIAttack,
   clampToArena,
   createRetreatDirection,
+  getAIAttackArm,
+  isTargetInAIAttackArc,
   selectNearestLivingTarget,
   separateAIStates,
   stepAIRetreat,
   stepAI,
+  stepAIReposition,
 } = require('../dist/ai.js');
+
+test('AI ID는 고정된 LEFT/RIGHT 공격 팔을 결정한다', () => {
+  assert.equal(getAIAttackArm('enemy-left'), 'LEFT');
+  assert.equal(getAIAttackArm('enemy-right'), 'RIGHT');
+});
+
+test('링크 파트너 반대쪽 대상만 공격 가능하다', () => {
+  assert.equal(isTargetInAIAttackArc(position(-0.9), position(0.9), position(-1.5)), true);
+  assert.equal(isTargetInAIAttackArc(position(-0.9), position(0.9), position(0)), false);
+  assert.equal(isTargetInAIAttackArc(position(0.9), position(-0.9), position(1.5)), true);
+});
+
+test('회전된 링크에서도 바깥쪽 공격 영역을 계산한다', () => {
+  assert.equal(isTargetInAIAttackArc(position(0, -0.9), position(0, 0.9), position(0, -1.5)), true);
+});
+
+test('공격 불가능한 위치에서는 링크 반경을 따라 REPOSITION한다', () => {
+  const moved = stepAIReposition(ai('enemy-left', -0.9), position(0.9), position(0), 1 / 30);
+  assert.equal(moved.state, AIState.REPOSITION);
+  assert.ok(Number.isFinite(moved.position.x) && Number.isFinite(moved.position.z));
+});
 const { AIState, FighterState, GameState } = require('../dist/enums.js');
 
 const position = (x, z = 0) => ({ x, y: 0.9, z });

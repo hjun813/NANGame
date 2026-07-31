@@ -84,6 +84,62 @@ export function attackStateToAIState(state: FighterState): AIState | null {
   return null;
 }
 
+export function getAIAttackArm(aiId: string): 'LEFT' | 'RIGHT' {
+  return aiId === 'enemy-left' ? 'LEFT' : 'RIGHT';
+}
+
+/** 링크 파트너 반대쪽 반원만 해당 AI 팔의 공격 가능 영역으로 사용한다. */
+export function isTargetInAIAttackArc(
+  aiPosition: Vec3,
+  partnerPosition: Vec3,
+  targetPosition: Vec3,
+  minimumDot = 0,
+): boolean {
+  const outwardX = aiPosition.x - partnerPosition.x;
+  const outwardZ = aiPosition.z - partnerPosition.z;
+  const targetX = targetPosition.x - aiPosition.x;
+  const targetZ = targetPosition.z - aiPosition.z;
+  const outwardLength = Math.hypot(outwardX, outwardZ);
+  const targetLength = Math.hypot(targetX, targetZ);
+  if (outwardLength <= DISTANCE_EPSILON || targetLength <= DISTANCE_EPSILON) return false;
+  return (outwardX * targetX + outwardZ * targetZ) /
+    (outwardLength * targetLength) >= minimumDot;
+}
+
+/** 공격 불가능한 반대편에서는 링크 반경 위의 공격 가능한 위치로 서서히 재배치한다. */
+export function stepAIReposition(
+  ai: AIStateSnapshot,
+  partnerPosition: Vec3,
+  targetPosition: Vec3,
+  deltaTime: number,
+  moveSpeed = GAME_CONFIG.AI_MOVE_SPEED,
+): AIStateSnapshot {
+  const radialX = targetPosition.x - partnerPosition.x;
+  const radialZ = targetPosition.z - partnerPosition.z;
+  const radialLength = Math.hypot(radialX, radialZ);
+  const fallback = ai.id === 'enemy-left' ? -1 : 1;
+  const nx = radialLength > DISTANCE_EPSILON ? radialX / radialLength : fallback;
+  const nz = radialLength > DISTANCE_EPSILON ? radialZ / radialLength : 0;
+  const goal = {
+    x: partnerPosition.x + nx * GAME_CONFIG.AI_LINK_TARGET_DISTANCE,
+    y: ai.position.y,
+    z: partnerPosition.z + nz * GAME_CONFIG.AI_LINK_TARGET_DISTANCE,
+  };
+  const dx = goal.x - ai.position.x;
+  const dz = goal.z - ai.position.z;
+  const length = Math.hypot(dx, dz);
+  const step = Math.min(length, moveSpeed * Math.max(0, deltaTime));
+  return {
+    ...ai,
+    state: AIState.REPOSITION,
+    position: clampToArena({
+      x: ai.position.x + (length > 0 ? dx / length * step : 0),
+      y: ai.position.y,
+      z: ai.position.z + (length > 0 ? dz / length * step : 0),
+    }, GAME_CONFIG.ARENA_POSITION_LIMIT),
+  };
+}
+
 /** 마지막 공격 대상의 반대 방향. 동일 좌표는 AI ID로 결정적인 X축 방향을 선택한다. */
 export function createRetreatDirection(
   aiId: string,

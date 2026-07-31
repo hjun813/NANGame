@@ -51,3 +51,19 @@ export function slotGuide(slot: FighterSlot | string | null): {
   if (slot === FighterSlot.RIGHT) return { label: '오른쪽 파이터', movement: '방향키', attack: 'L' };
   return { label: '캐릭터 배정 중', movement: '-', attack: '-' };
 }
+
+export function rematchUiState(selfReady: boolean, opponentReady: boolean): {
+  message: string; buttonLabel: string; alreadyRequested: boolean;
+} {
+  if (selfReady) return {
+    message: '상대방의 재경기 동의를 기다리는 중...',
+    buttonLabel: '재경기 요청 완료',
+    alreadyRequested: true,
+  };
+  if (opponentReady) return {
+    message: '상대방이 재경기를 요청했습니다.',
+    buttonLabel: '재경기 동의',
+    alreadyRequested: false,
+  };
+  return { message: '두 플레이어가 모두 동의하면 다시 시작합니다.', buttonLabel: '재경기 요청', alreadyRequested: false };
+}

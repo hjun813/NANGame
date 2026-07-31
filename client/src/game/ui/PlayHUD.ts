@@ -1,7 +1,7 @@
 import { GAME_CONFIG } from '@shared/constants';
 import { FighterSlot, GameState, MatchResult } from '@shared/enums';
 import type { CombatStateSnapshot, HealthFighterState } from '@shared/health';
-import { formatMatchTime, gameStateMessage, hpPercent, isDown, resultCopy, slotGuide } from '@shared/playUi';
+import { formatMatchTime, gameStateMessage, hpPercent, isDown, rematchUiState, resultCopy, slotGuide } from '@shared/playUi';
 import type { CombatConnectionStatus } from '../network/CombatNetwork';
 
 type FighterView = { root: HTMLElement; hp: HTMLElement; fill: HTMLElement; badge: HTMLElement };
@@ -15,7 +15,13 @@ export class PlayHUD {
   private readonly resultDetail: HTMLElement;
   private readonly guide: HTMLElement;
   private readonly connection: HTMLElement;
+  private readonly rematchButton: HTMLButtonElement;
+  private readonly rematchMessage: HTMLElement;
   private readonly fighterViews = new Map<string, FighterView>();
+  private assignedSlot: FighterSlot | null = null;
+  private connectionState: CombatConnectionStatus = 'CONNECTING';
+  private rematchHandler: (() => void) | null = null;
+  private readonly onRematchClick = () => this.rematchHandler?.();
 
   constructor() {
     document.getElementById('linked-fighters-play-hud')?.remove();
@@ -29,17 +35,21 @@ export class PlayHUD {
       .lf-timer{font:800 28px/1 ui-monospace,monospace;padding:12px 16px;border-radius:10px;background:#05090ee6;border:1px solid #ffffff38;letter-spacing:2px}
       .lf-center{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:clamp(30px,7vw,76px);font-weight:900;text-align:center;white-space:nowrap}.lf-center.waiting{font-size:clamp(20px,3vw,34px);padding:18px 24px;background:#07111ddd;border-radius:14px}
       .lf-result{position:absolute;inset:0;display:none;place-content:center;text-align:center;background:#03070ab8}.lf-result.show{display:grid}.lf-result h1{font-size:clamp(48px,9vw,96px);margin:0}.lf-result p{font-size:18px;margin:12px 0 0}.lf-result small{margin-top:20px;color:#b9c1c9}
+      .lf-rematch{pointer-events:auto;justify-self:center;margin-top:20px;padding:11px 22px;border:1px solid #9bdcff;border-radius:8px;background:#1676a8;color:white;font-weight:800;cursor:pointer}.lf-rematch:disabled{cursor:not-allowed;opacity:.45}.lf-rematch-message{margin-top:12px;color:#d7e3ea;font-size:14px}
       .lf-guide{position:absolute;left:18px;bottom:18px;padding:12px 16px;background:#07111ddd;border:1px solid #ffffff26;border-radius:10px;font-size:13px;line-height:1.7}.lf-guide strong{color:#9bdcff}.lf-connection{position:absolute;right:18px;bottom:18px;padding:8px 12px;border-radius:20px;background:#07111ddd;font-size:12px;border:1px solid #ffffff26}.lf-connection.connected{color:#86efac}.lf-connection.error{color:#fca5a5}
       @media(max-width:650px){.lf-score{grid-template-columns:1fr 1fr;gap:8px}.lf-timer{position:absolute;left:50%;top:0;transform:translateX(-50%);font-size:18px}.lf-team{margin-top:46px;padding:9px}.lf-guide{font-size:11px;bottom:12px;left:12px}.lf-connection{right:12px;bottom:12px}}
     </style>
     <div class="lf-score"><section class="lf-team"><h2>PLAYER TEAM</h2>${this.fighterMarkup('player-left','LEFT')}${this.fighterMarkup('player-right','RIGHT')}</section><div class="lf-timer">03:00</div><section class="lf-team enemy"><h2>ENEMY TEAM</h2>${this.fighterMarkup('enemy-left','LEFT')}${this.fighterMarkup('enemy-right','RIGHT')}</section></div>
     <div class="lf-center waiting">경기 상태 확인 중...</div>
-    <div class="lf-result"><h1></h1><p></p><small>재경기 기능 준비 중</small></div>
+    <div class="lf-result"><h1></h1><p></p><button class="lf-rematch" type="button">재경기 요청</button><div class="lf-rematch-message"></div></div>
     <div class="lf-guide"></div><div class="lf-connection">서버 연결 중...</div>`;
     document.body.appendChild(this.root);
     this.timer = this.require('.lf-timer'); this.centerMessage = this.require('.lf-center');
     this.result = this.require('.lf-result'); this.resultTitle = this.require('.lf-result h1'); this.resultDetail = this.require('.lf-result p');
     this.guide = this.require('.lf-guide'); this.connection = this.require('.lf-connection');
+    this.rematchButton = this.require<HTMLButtonElement>('.lf-rematch');
+    this.rematchMessage = this.require('.lf-rematch-message');
+    this.rematchButton.addEventListener('click', this.onRematchClick);
     for (const id of ['player-left','player-right','enemy-left','enemy-right']) {
       const root = this.require(`[data-fighter="${id}"]`);
       this.fighterViews.set(id, { root, hp: this.require('.lf-hp', root), fill: this.require('.lf-fill', root), badge: this.require('.lf-badge', root) });
@@ -59,21 +69,38 @@ export class PlayHUD {
     if (finished) {
       const copy = resultCopy(snapshot.result);
       this.resultTitle.textContent = copy.title; this.resultDetail.textContent = copy.detail;
+      const selfReady = this.assignedSlot ? snapshot.rematchReady?.[this.assignedSlot] ?? false : false;
+      const opponentSlot = this.assignedSlot === FighterSlot.LEFT ? FighterSlot.RIGHT : FighterSlot.LEFT;
+      const opponentReady = this.assignedSlot ? snapshot.rematchReady?.[opponentSlot] ?? false : false;
+      const rematch = rematchUiState(selfReady, opponentReady);
+      this.rematchButton.textContent = rematch.buttonLabel;
+      this.rematchMessage.textContent = rematch.message;
+      this.rematchButton.disabled = !this.assignedSlot || this.connectionState !== 'CONNECTED' || rematch.alreadyRequested;
     }
   }
 
   setAssignedSlot(slot: FighterSlot | null): void {
+    this.assignedSlot = slot;
     const copy = slotGuide(slot);
     this.guide.innerHTML = `<strong>내 캐릭터: ${copy.label}</strong><br>이동: ${copy.movement} · 공격: ${copy.attack}`;
   }
 
   setConnectionState(state: CombatConnectionStatus): void {
+    this.connectionState = state;
     const labels: Record<CombatConnectionStatus,string> = { CONNECTING:'서버 연결 중...', CONNECTED:'서버 연결됨', DISCONNECTED:'서버 연결 해제', ERROR:'서버 연결 오류' };
     this.connection.textContent = labels[state];
     this.connection.className = `lf-connection ${state === 'CONNECTED' ? 'connected' : state === 'CONNECTING' ? '' : 'error'}`;
   }
 
-  destroy(): void { this.root.remove(); }
+  setRematchRequestHandler(handler: (() => void) | null): void {
+    this.rematchHandler = handler;
+  }
+
+  destroy(): void {
+    this.rematchButton.removeEventListener('click', this.onRematchClick);
+    this.rematchHandler = null;
+    this.root.remove();
+  }
 
   private updateFighter(fighter: HealthFighterState): void {
     const view = this.fighterViews.get(fighter.id); if (!view) return;

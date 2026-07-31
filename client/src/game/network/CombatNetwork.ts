@@ -15,6 +15,7 @@ export class CombatNetwork {
   public assignment: CombatAssignmentMessage | null = null;
   public roomId = '-';
   public sessionId = '-';
+  private resetRevision = 0;
 
   constructor(
     private readonly onState: (state: CombatStateSnapshot) => void,
@@ -39,7 +40,10 @@ export class CombatNetwork {
       this.setStatus('CONNECTED');
       this.roomId = room.roomId;
       this.sessionId = room.sessionId;
-      room.onMessage<CombatStateSnapshot>(EVENTS.COMBAT_STATE, this.onState);
+      room.onMessage<CombatStateSnapshot>(EVENTS.COMBAT_STATE, (state) => {
+        this.resetRevision = state.resetRevision ?? this.resetRevision;
+        this.onState(state);
+      });
       room.onMessage<CombatAssignmentMessage>(EVENTS.COMBAT_ASSIGNMENT, (assignment) => {
         this.assignment = assignment;
         this.onAssignmentChange?.(assignment);
@@ -63,13 +67,13 @@ export class CombatNetwork {
 
   sendPosition(message: CombatPositionMessage): boolean {
     if (!this.room || !this.assignment) return false;
-    this.room.send(EVENTS.COMBAT_POSITION, message);
+    this.room.send(EVENTS.COMBAT_POSITION, { ...message, resetRevision: this.resetRevision });
     return true;
   }
 
   sendAttack(message: CombatAttackMessage): boolean {
     if (!this.room || !this.assignment) return false;
-    this.room.send(EVENTS.COMBAT_ATTACK, message);
+    this.room.send(EVENTS.COMBAT_ATTACK, { ...message, resetRevision: this.resetRevision });
     return true;
   }
 
@@ -82,6 +86,12 @@ export class CombatNetwork {
   reset(): boolean {
     if (!this.room) return false;
     this.room.send(EVENTS.COMBAT_RESET);
+    return true;
+  }
+
+  requestRematch(): boolean {
+    if (!this.room || !this.assignment) return false;
+    this.room.send(EVENTS.COMBAT_REMATCH);
     return true;
   }
 

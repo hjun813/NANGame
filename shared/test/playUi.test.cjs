@@ -35,3 +35,9 @@ test('slot guide reflects actual input mapping', () => {
   assert.deepEqual(ui.slotGuide(FighterSlot.RIGHT), { label: '오른쪽 파이터', movement: '방향키', attack: 'L' });
   assert.equal(ui.slotGuide(null).label, '캐릭터 배정 중');
 });
+test('rematch UI follows authoritative ready states', () => {
+  assert.equal(ui.rematchUiState(false, false).buttonLabel, '재경기 요청');
+  assert.match(ui.rematchUiState(true, false).message, /기다리는 중/);
+  assert.equal(ui.rematchUiState(true, false).alreadyRequested, true);
+  assert.match(ui.rematchUiState(false, true).message, /상대방이/);
+});

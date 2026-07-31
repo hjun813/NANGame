@@ -177,6 +177,7 @@ export class Arena {
   enemyB: Fighter;   // AI 팀 자리 표시
 
   private linkLine: THREE.Line;
+  private enemyLinkLine: THREE.Line;
   public linkState: LinkState = LinkState.ARM_LOCK;
   public linkTensionState: LinkTensionState = LinkTensionState.RELAXED;
   public linkDistance = 0;
@@ -229,14 +230,14 @@ export class Arena {
       'player-right', 0x81c784, 0.9, physics, Team.PLAYER, FighterSlot.RIGHT, true,
     );
     this.enemyA = new Fighter(
-      'enemy-left', 0xef5350, -3, physics, Team.AI, FighterSlot.LEFT,
+      'enemy-left', 0xef5350, -0.9, physics, Team.AI, FighterSlot.LEFT, true,
     );
     this.enemyB = new Fighter(
-      'enemy-right', 0xff7043, 3, physics, Team.AI, FighterSlot.RIGHT,
+      'enemy-right', 0xff7043, 0.9, physics, Team.AI, FighterSlot.RIGHT, true,
     );
     this.aiStates = this.createInitialAIStates();
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach(f => scene.add(f.mesh));
-    scene.add(this.fighterA.hitbox!, this.fighterB.hitbox!);
+    scene.add(this.fighterA.hitbox!, this.fighterB.hitbox!, this.enemyA.hitbox!, this.enemyB.hitbox!);
 
     // ── 링크 시각화 선 ───────────────────
     const linkGeo = new THREE.BufferGeometry().setFromPoints([
@@ -247,6 +248,15 @@ export class Arena {
     // 매 프레임 이동하는 선의 오래된 bounding sphere로 인한 오검출을 방지한다.
     this.linkLine.frustumCulled = false;
     scene.add(this.linkLine);
+    const enemyLinkGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(), new THREE.Vector3(),
+    ]);
+    this.enemyLinkLine = new THREE.Line(
+      enemyLinkGeo,
+      new THREE.LineBasicMaterial({ color: 0xff6b6b, transparent: true, opacity: 0.8 }),
+    );
+    this.enemyLinkLine.frustumCulled = false;
+    scene.add(this.enemyLinkLine);
   }
 
   static async create(scene: THREE.Scene): Promise<Arena> {
@@ -388,6 +398,8 @@ export class Arena {
     this.enemyB.interpolate(alpha);
     this.updateHitbox(this.fighterA, -1);
     this.updateHitbox(this.fighterB, 1);
+    this.updateAIHitbox(this.enemyA, this.enemyB);
+    this.updateAIHitbox(this.enemyB, this.enemyA);
 
     // 링크 선 업데이트
     const positions = this.linkLine.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -404,6 +416,10 @@ export class Arena {
       this.fighterB.mesh.position.z,
     );
     positions.needsUpdate = true;
+    const enemyPositions = this.enemyLinkLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    enemyPositions.setXYZ(0, this.enemyA.mesh.position.x, this.enemyA.mesh.position.y, this.enemyA.mesh.position.z);
+    enemyPositions.setXYZ(1, this.enemyB.mesh.position.x, this.enemyB.mesh.position.y, this.enemyB.mesh.position.z);
+    enemyPositions.needsUpdate = true;
   }
 
   private resolveAttack(attacker: Fighter, directionX: -1 | 1) {
@@ -556,6 +572,23 @@ export class Arena {
     this.aiStates = this.createInitialAIStates();
   }
 
+  private updateAIHitbox(fighter: Fighter, partner: Fighter) {
+    if (!fighter.hitbox) return;
+    fighter.hitbox.visible = !fighter.isDown &&
+      this.gameState === GameState.PLAYING &&
+      this.matchResult === MatchResult.PLAYING &&
+      fighter.attack.state === FighterState.ATTACK_ACTIVE;
+    const dx = fighter.mesh.position.x - partner.mesh.position.x;
+    const dz = fighter.mesh.position.z - partner.mesh.position.z;
+    const length = Math.hypot(dx, dz);
+    const fallback = fighter.slot === FighterSlot.LEFT ? -1 : 1;
+    fighter.hitbox.position.set(
+      fighter.mesh.position.x + (length > 0 ? dx / length : fallback) * HITBOX_OFFSET,
+      fighter.mesh.position.y,
+      fighter.mesh.position.z + (length > 0 ? dz / length : 0) * HITBOX_OFFSET,
+    );
+  }
+
   private createInitialAIStates(): AIStateSnapshot[] {
     return [this.enemyA, this.enemyB].map((fighter) => ({
       id: fighter.id,
@@ -586,6 +619,10 @@ export class Arena {
   }
 
   dispose() {
+    this.linkLine.geometry.dispose();
+    (this.linkLine.material as THREE.Material).dispose();
+    this.enemyLinkLine.geometry.dispose();
+    (this.enemyLinkLine.material as THREE.Material).dispose();
     this.physics.dispose();
   }
 }

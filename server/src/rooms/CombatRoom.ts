@@ -10,9 +10,13 @@ import {
   evaluateTimeLimitResult,
   GAME_CONFIG,
   isBasicAttackHit,
-  separateAIStates,
+  isTargetInAIAttackArc,
+  applyAILinkConstraint,
+  createRematchReady,
+  registerRematchRequest,
   stepAIRetreat,
   stepAI,
+  stepAIReposition,
 } from 'linked-fighters-shared';
 import {
   AIState,
@@ -23,7 +27,7 @@ import {
   MatchResult,
   Team,
 } from 'linked-fighters-shared';
-import type { AIStateSnapshot, HealthFighterState } from 'linked-fighters-shared';
+import type { AIStateSnapshot, HealthFighterState, RematchReady } from 'linked-fighters-shared';
 import type {
   CombatAttackMessage,
   CombatDamageMessage,
@@ -57,6 +61,7 @@ export class CombatRoom extends Room {
   private countdownRemaining = 0;
   private timeRemaining: number = GAME_CONFIG.MATCH_DURATION;
   private matchResult = MatchResult.PLAYING;
+  private rematchReady: RematchReady = createRematchReady();
 
   onCreate() {
     // COMBAT_DAMAGE는 그레이박스 수동 테스트 전용이다.
@@ -65,12 +70,9 @@ export class CombatRoom extends Room {
       EVENTS.COMBAT_DAMAGE,
       (_client, message: unknown) => this.handleDamage(message),
     );
-    this.onMessage(EVENTS.COMBAT_RESET, () => {
-      this.resetMatchData();
-      if (this.assignments.size === this.maxClients) {
-        this.startCountdown();
-      }
-      this.broadcastState();
+    this.onMessage(EVENTS.COMBAT_RESET, () => undefined);
+    this.onMessage(EVENTS.COMBAT_REMATCH, (client) => {
+      this.handleRematchRequest(client);
     });
     this.onMessage(EVENTS.COMBAT_POSITION, (client, message: unknown) => {
       this.handlePosition(client, message);
@@ -111,6 +113,20 @@ export class CombatRoom extends Room {
     this.broadcastState();
   }
 
+  private handleRematchRequest(client: Client) {
+    const slot = this.assignments.get(client.sessionId) ?? null;
+    const request = registerRematchRequest(this.rematchReady, slot, this.gameState);
+    if (!request.accepted) return;
+    this.rematchReady = request.ready;
+    if (request.allReady && this.assignments.size === this.maxClients) {
+      this.resetMatchData();
+      this.startCountdown();
+    } else {
+      this.revision++;
+    }
+    this.broadcastState();
+  }
+
   private sendAssignment(client: Client) {
     const slot = this.assignments.get(client.sessionId);
     if (!slot) return;
@@ -127,6 +143,7 @@ export class CombatRoom extends Room {
     const previousSequence = this.positionSequences.get(slot) ?? -1;
     if (message.sequence <= previousSequence) return;
     const fighterId = slot === FighterSlot.LEFT ? 'player-left' : 'player-right';
+    if (message.resetRevision !== this.resetRevision) return;
     const current = this.positions[fighterId];
     const proposed = message.position;
     const distance = Math.hypot(proposed.x - current.x, proposed.z - current.z);
@@ -155,6 +172,7 @@ export class CombatRoom extends Room {
     if (this.gameState !== GameState.PLAYING) return;
     const slot = this.assignments.get(client.sessionId);
     if (!slot || !this.isAttackMessage(message)) return;
+    if (message.resetRevision !== this.resetRevision) return;
     const attackerId = slot === FighterSlot.LEFT ? 'player-left' : 'player-right';
     if (message.attackerId !== attackerId) return;
     const previousSequence = this.attackSequences.get(slot) ?? -1;
@@ -281,25 +299,6 @@ export class CombatRoom extends Room {
         attack.update(dt);
         fighter.state = attack.state;
         if (
-          attack.state === FighterState.ATTACK_ACTIVE &&
-          target.state !== FighterState.DOWN &&
-          isBasicAttackHit(
-            ai.position,
-            target.position,
-            {
-              x: target.position.x - ai.position.x,
-              z: target.position.z - ai.position.z,
-            },
-          ) &&
-          attack.registerHit(target.id)
-        ) {
-          pendingDamage.push({
-            fighterId: target.id,
-            damage: GAME_CONFIG.ATTACK_DAMAGE,
-          });
-        }
-
-        if (
           previousAttackState === FighterState.ATTACK_RECOVERY &&
           (attack.state as FighterState) === FighterState.NORMAL
         ) {
@@ -326,6 +325,7 @@ export class CombatRoom extends Room {
       const target = playerCandidates.find(
         (candidate) => candidate.id === moved.targetId,
       ) ?? null;
+      const partner = this.aiStates.find((candidate) => candidate.id !== ai.id)!;
       if (
         moved.state === AIState.ATTACK_READY &&
         canStartAIAttack(
@@ -334,24 +334,67 @@ export class CombatRoom extends Room {
           target,
           this.gameState,
           attack.state,
-        ) &&
+        ) && isTargetInAIAttackArc(moved.position, partner.position, target!.position) &&
         attack.tryStart()
       ) {
         fighter.state = attack.state;
         return { ...moved, state: AIState.WINDUP };
+      }
+      if (
+        moved.state === AIState.ATTACK_READY && target &&
+        !isTargetInAIAttackArc(moved.position, partner.position, target.position)
+      ) {
+        fighter.state = FighterState.NORMAL;
+        return stepAIReposition(moved, partner.position, target.position, dt);
       }
       fighter.state = FighterState.NORMAL;
       return moved;
     });
     const fighterA = this.fighters.find((fighter) => fighter.id === stepped[0].id);
     const fighterB = this.fighters.find((fighter) => fighter.id === stepped[1].id);
-    const [separatedA, separatedB] = separateAIStates(stepped[0], stepped[1], {
-      movableA: fighterA?.state !== FighterState.DOWN,
-      movableB: fighterB?.state !== FighterState.DOWN,
-    });
-    this.aiStates = [separatedA, separatedB];
+    const bothDown = fighterA?.state === FighterState.DOWN && fighterB?.state === FighterState.DOWN;
+    if (bothDown) {
+      this.aiStates = stepped;
+    } else {
+      const linked = applyAILinkConstraint(
+        this.aiStates[0].position,
+        this.aiStates[1].position,
+        stepped[0].position,
+        stepped[1].position,
+        {
+          firstDown: fighterA?.state === FighterState.DOWN,
+          secondDown: fighterB?.state === FighterState.DOWN,
+        },
+      );
+      this.aiStates = [
+        { ...stepped[0], position: linked.firstPosition },
+        { ...stepped[1], position: linked.secondPosition },
+      ];
+    }
     for (const ai of this.aiStates) {
       this.positions[ai.id] = { ...ai.position };
+    }
+    this.collectAIAttackHits(playerCandidates, pendingDamage);
+  }
+
+  private collectAIAttackHits(
+    playerCandidates: Array<{ id: string; state: FighterState; position: Vec3 }>,
+    pendingDamage: CombatDamageMessage['hits'],
+  ) {
+    for (const ai of this.aiStates) {
+      const attack = this.attacks[ai.id];
+      const target = playerCandidates.find((candidate) => candidate.id === ai.targetId);
+      const partner = this.aiStates.find((candidate) => candidate.id !== ai.id);
+      if (!target || target.state === FighterState.DOWN || attack.state !== FighterState.ATTACK_ACTIVE) continue;
+      if (
+        partner && isTargetInAIAttackArc(ai.position, partner.position, target.position) &&
+        isBasicAttackHit(ai.position, target.position, {
+          x: ai.position.x - partner.position.x,
+          z: ai.position.z - partner.position.z,
+        }) && attack.registerHit(target.id)
+      ) {
+        pendingDamage.push({ fighterId: target.id, damage: GAME_CONFIG.ATTACK_DAMAGE });
+      }
     }
   }
 
@@ -450,6 +493,7 @@ export class CombatRoom extends Room {
         ...ai,
         position: { ...ai.position },
       })),
+      rematchReady: { ...this.rematchReady },
       playerLinkState: evaluation.playerLinkState,
       enemyLinkState: evaluation.enemyLinkState,
       result: this.matchResult,
@@ -492,6 +536,7 @@ export class CombatRoom extends Room {
     this.matchResult = MatchResult.PLAYING;
     this.timeRemaining = GAME_CONFIG.MATCH_DURATION;
     this.countdownRemaining = 0;
+    this.rematchReady = createRematchReady();
     this.resetRevision++;
     this.revision++;
   }
@@ -507,10 +552,10 @@ export class CombatRoom extends Room {
 
   private createInitialPositions(): Record<string, Vec3> {
     return {
-      'player-left': { x: -1, y: 0.9, z: 0 },
-      'player-right': { x: 1, y: 0.9, z: 0 },
-      'enemy-left': { x: -3, y: 0.9, z: 0 },
-      'enemy-right': { x: 3, y: 0.9, z: 0 },
+      'player-left': { x: -0.9, y: 0.9, z: 0 },
+      'player-right': { x: 0.9, y: 0.9, z: 0 },
+      'enemy-left': { x: -0.9, y: 0.9, z: -3 },
+      'enemy-right': { x: 0.9, y: 0.9, z: -3 },
     };
   }
 

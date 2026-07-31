@@ -38,6 +38,9 @@ export function App() {
       (assignment) => playHud.setAssignedSlot(assignment?.slot ?? null),
     );
     playHud.setConnectionState(combatNetwork.status);
+    playHud.setRematchRequestHandler(() => {
+      combatNetwork.requestRematch();
+    });
     let cancelled = false;
     let inputSequence = 0;
     let attackSequence = 0;

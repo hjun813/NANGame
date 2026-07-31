@@ -45,6 +45,10 @@ export const GAME_CONFIG = {
   AI_RETREAT_DURATION: 0.35,    // 공격 후 후퇴 시간 (초, 최대 약 1.05m)
   AI_MIN_SEPARATION: 0.9,       // 두 AI 사이 최소 거리 (m)
   AI_SEPARATION_MAX_STEP: 0.05, // 한 tick에서 AI별 최대 분리 보정량 (m)
+  AI_LINK_TARGET_DISTANCE: 1.8,
+  AI_LINK_DISTANCE_TOLERANCE: 0.15,
+  AI_LINK_MAX_CORRECTION_PER_TICK: 0.2,
+  AI_DOWN_DRAG_MAX_CORRECTION_PER_TICK: 0.1,
   ARENA_POSITION_LIMIT: 9.5,    // 서버 좌표 검증 및 AI 이동 경계 (m)
 
   // 서버 틱
@@ -69,4 +73,5 @@ export const EVENTS = {
   COMBAT_ASSIGNMENT: 'combat_assignment',
   COMBAT_POSITION: 'combat_position',
   COMBAT_ATTACK: 'combat_attack',
+  COMBAT_REMATCH: 'combat_rematch',
 } as const;
