@@ -177,6 +177,7 @@ export class Arena {
   public physicsCollisionCount = 0;
   public enemyLinkState: LinkState = LinkState.ARM_LOCK;
   public matchResult: MatchResult = MatchResult.PLAYING;
+  private serverResetRevision: number | null = null;
   private damageDispatcher:
     ((fighterId: string, damage: number) => boolean) | null = null;
 
@@ -457,12 +458,27 @@ export class Arena {
     this.damageDispatcher = dispatcher;
   }
 
-  applyAuthoritativeState(snapshot: CombatStateSnapshot) {
+  applyAuthoritativeState(snapshot: CombatStateSnapshot, ownedFighterId?: string) {
+    const serverResetChanged = snapshot.resetRevision !== undefined &&
+      snapshot.resetRevision !== this.serverResetRevision;
+    if (serverResetChanged) {
+      this.resetMatch();
+      this.serverResetRevision = snapshot.resetRevision!;
+    }
     const byId = new Map(snapshot.fighters.map((fighter) => [fighter.id, fighter]));
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach((fighter) => {
       const authoritative = byId.get(fighter.id);
       if (authoritative) {
         fighter.syncHealth(authoritative.hp, authoritative.state);
+        // 소유 캐릭터는 기존 Rapier 충돌 결과를 유지하고 원격 캐릭터만 따라간다.
+        if (
+          authoritative.position &&
+          (serverResetChanged || fighter.id !== ownedFighterId)
+        ) {
+          fighter.prevPosition = { ...fighter.position };
+          fighter.position = { ...authoritative.position };
+          this.physics.teleportCharacter(fighter.physicsCharacter, authoritative.position);
+        }
       }
     });
     this.linkState = snapshot.playerLinkState;
@@ -472,6 +488,12 @@ export class Arena {
       [this.fighterA, this.fighterB, this.enemyA, this.enemyB]
         .forEach((fighter) => fighter.attack.cancel());
     }
+  }
+
+  getFighterPosition(fighterId: string): Vec3 | null {
+    const fighter = [this.fighterA, this.fighterB]
+      .find((candidate) => candidate.id === fighterId);
+    return fighter ? { ...fighter.position } : null;
   }
 
   /** 그레이박스 반복 검증을 위해 경기 상태와 물리 위치를 초기 상태로 복구한다. */

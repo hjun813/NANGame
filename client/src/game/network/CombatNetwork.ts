@@ -1,7 +1,9 @@
 import { Client, Room } from 'colyseus.js';
 import { EVENTS } from '@shared/constants';
 import type {
+  CombatAssignmentMessage,
   CombatDamageMessage,
+  CombatPositionMessage,
   CombatStateSnapshot,
 } from '@shared/health';
 
@@ -9,6 +11,9 @@ export class CombatNetwork {
   public status = 'CONNECTING';
   private room: Room | null = null;
   private disposed = false;
+  public assignment: CombatAssignmentMessage | null = null;
+  public roomId = '-';
+  public sessionId = '-';
 
   constructor(
     private readonly onState: (state: CombatStateSnapshot) => void,
@@ -24,9 +29,18 @@ export class CombatNetwork {
       }
       this.room = room;
       this.status = 'CONNECTED';
+      this.roomId = room.roomId;
+      this.sessionId = room.sessionId;
       room.onMessage<CombatStateSnapshot>(EVENTS.COMBAT_STATE, this.onState);
+      room.onMessage<CombatAssignmentMessage>(EVENTS.COMBAT_ASSIGNMENT, (assignment) => {
+        this.assignment = assignment;
+      });
       room.onLeave(() => {
-        if (!this.disposed) this.status = 'DISCONNECTED';
+        if (!this.disposed) {
+          this.status = 'DISCONNECTED';
+          this.room = null;
+          this.assignment = null;
+        }
       });
       room.onError(() => {
         this.status = 'ERROR';
@@ -35,6 +49,12 @@ export class CombatNetwork {
     } catch {
       if (!this.disposed) this.status = 'ERROR';
     }
+  }
+
+  sendPosition(message: CombatPositionMessage): boolean {
+    if (!this.room || !this.assignment) return false;
+    this.room.send(EVENTS.COMBAT_POSITION, message);
+    return true;
   }
 
   sendDamage(message: CombatDamageMessage): boolean {

@@ -70,7 +70,9 @@ export class DebugHUD {
       ─────────────────<br>
       Network: <b>${network.status}</b><br>
       Combat authority: <b>${combatNetwork.status}</b><br>
-      Room: ${network.roomId}<br>
+      Assigned fighter: <b>${combatNetwork.assignment?.fighterId ?? 'LOCAL BOTH'}</b><br>
+      Combat room: <b>${combatNetwork.roomId}</b><br>
+      Lobby spike room: ${network.roomId}<br>
       Players: ${network.playerCount}/2 &nbsp; Ready: ${network.readyCount}/2<br>
       Revision: ${network.revision}<br>
       ${network.error ? `<span style="color:#ff5252">${network.error}</span><br>` : ''}

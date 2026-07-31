@@ -7,6 +7,7 @@ import { DebugHUD } from './game/debug/DebugHUD';
 import { DebugControlPanel } from './game/debug/DebugControlPanel';
 import { NetworkSpike } from './game/network/NetworkSpike';
 import { CombatNetwork } from './game/network/CombatNetwork';
+import { FighterSlot } from '@shared/enums';
 
 // 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
 const CAM_HEIGHT = 10;
@@ -27,9 +28,10 @@ export function App() {
     let arena: Arena | null = null;
     let debugControls: DebugControlPanel | null = null;
     const combatNetwork = new CombatNetwork((state) => {
-      arena?.applyAuthoritativeState(state);
+      arena?.applyAuthoritativeState(state, combatNetwork.assignment?.fighterId);
     });
     let cancelled = false;
+    let inputSequence = 0;
 
     // 카메라 부드러운 추적용 현재 목표 위치
     const camTarget = new THREE.Vector3(0, 0, 0);
@@ -53,9 +55,22 @@ export function App() {
       (dt) => {
         const a = input.getPlayerAInput();
         const b = input.getPlayerBInput();
-        const attackA = input.consumePress('KeyF');
-        const attackB = input.consumePress('KeyL');
-        activeArena.fixedUpdate(a, b, attackA, attackB, dt);
+        const connectedSlot = combatNetwork.assignment?.slot;
+        const localA = !connectedSlot || connectedSlot === FighterSlot.LEFT ? a : { x: 0, z: 0 };
+        const localB = !connectedSlot || connectedSlot === FighterSlot.RIGHT ? b : { x: 0, z: 0 };
+        const attackA = (!connectedSlot || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
+        const attackB = (!connectedSlot || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
+        activeArena.fixedUpdate(localA, localB, attackA, attackB, dt);
+        const ownedFighterId = combatNetwork.assignment?.fighterId;
+        const ownedPosition = ownedFighterId
+          ? activeArena.getFighterPosition(ownedFighterId)
+          : null;
+        if (ownedPosition) {
+          combatNetwork.sendPosition({
+            sequence: ++inputSequence,
+            position: ownedPosition,
+          });
+        }
       },
       // ── render frame ──────────────────────
       (alpha) => {

@@ -29,6 +29,7 @@
 | `09_game_overview.md` | 게임 개요 |
 | `10_game_development_plan.md` | 개발 계획서 |
 | `11_game_rules.md` | 게임 전략 및 규칙 |
+| `12_network_sync_troubleshooting.md` | 전투 룸 위치·상태·초기화 동기화 이슈와 해결 기록 |
 
 ---
 

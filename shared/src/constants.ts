@@ -58,4 +58,6 @@ export const EVENTS = {
   COMBAT_RESET: 'combat_reset',
   COMBAT_REQUEST_STATE: 'combat_request_state',
   COMBAT_STATE: 'combat_state',
+  COMBAT_ASSIGNMENT: 'combat_assignment',
+  COMBAT_POSITION: 'combat_position',
 } as const;

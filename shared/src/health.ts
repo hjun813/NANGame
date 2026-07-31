@@ -1,5 +1,6 @@
 import { GAME_CONFIG } from './constants';
 import { FighterSlot, FighterState, LinkState, MatchResult, Team } from './enums';
+import type { Vec3 } from './types';
 
 export interface HealthFighterState {
   id: string;
@@ -27,7 +28,19 @@ export interface CombatDamageMessage {
 
 export interface CombatStateSnapshot extends TeamHealthEvaluation {
   revision: number;
-  fighters: HealthFighterState[];
+  /** 서버 경기 초기화 세대. 값이 바뀌면 클라이언트 물리 상태도 함께 초기화한다. */
+  resetRevision?: number;
+  fighters: Array<HealthFighterState & { position?: Vec3 }>;
+}
+
+export interface CombatAssignmentMessage {
+  fighterId: string;
+  slot: FighterSlot;
+}
+
+export interface CombatPositionMessage {
+  sequence: number;
+  position: Vec3;
 }
 
 export function createHealthFighter(
