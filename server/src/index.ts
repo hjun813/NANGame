@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'colyseus';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { SpikeRoom } from './rooms/SpikeRoom';
+import { CombatRoom } from './rooms/CombatRoom';
 
 const PORT = Number(process.env.PORT) || 2567;
 
@@ -13,6 +14,7 @@ const gameServer = new Server({
   transport: new WebSocketTransport({ server: httpServer }),
 });
 gameServer.define('spike_room', SpikeRoom);
+gameServer.define('combat_room', CombatRoom);
 
 // 헬스체크
 app.get('/health', (_req, res) => {

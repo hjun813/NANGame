@@ -1,6 +1,15 @@
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@shared/constants';
-import { FighterState, LinkState, LinkTensionState } from '@shared/enums';
+import {
+  FighterSlot,
+  FighterState,
+  LinkState,
+  LinkTensionState,
+  MatchResult,
+  Team,
+} from '@shared/enums';
+import { applyHealthDamage, evaluateTeamHealth } from '@shared/health';
+import type { CombatStateSnapshot } from '@shared/health';
 import { correctLinkedMovement, vec3Distance } from '@shared/linkCorrection';
 import { AttackStateMachine } from '@shared/combat';
 import type { Vec3 } from '@shared/types';
@@ -28,15 +37,21 @@ class Fighter {
   hitStunRemaining = 0;
   private readonly initialPosition: Vec3;
   private readonly initialColor: number;
+  readonly team: Team;
+  readonly slot: FighterSlot;
 
   constructor(
     id: string,
     color: number,
     startX: number,
     physics: PhysicsWorld,
+    team: Team,
+    slot: FighterSlot,
     hasAttackHitbox = false,
   ) {
     this.id = id;
+    this.team = team;
+    this.slot = slot;
     this.initialColor = color;
     const geo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
     const mat = new THREE.MeshStandardMaterial({ color });
@@ -77,8 +92,17 @@ class Fighter {
   takeDamage(damage: number): boolean {
     if (this.isDown || damage <= 0) return false;
 
-    this.hp = Math.max(0, this.hp - damage);
-    if (this.hp === 0) {
+    const result = applyHealthDamage({
+      id: this.id,
+      team: this.team,
+      slot: this.slot,
+      hp: this.hp,
+      state: this.state,
+    }, damage);
+    if (!result.applied) return false;
+
+    this.hp = result.fighter.hp;
+    if (result.becameDown) {
       this.attack.forceDown();
       this.hitStunRemaining = 0;
       this.knockbackVelocity = { x: 0, y: 0, z: 0 };
@@ -104,6 +128,21 @@ class Fighter {
     (this.mesh.material as THREE.MeshStandardMaterial)
       .color.setHex(this.initialColor);
     if (this.hitbox) this.hitbox.visible = false;
+  }
+
+  syncHealth(hp: number, state: FighterState) {
+    this.hp = Math.max(0, hp);
+    if (state === FighterState.DOWN && !this.isDown) {
+      this.attack.forceDown();
+      this.hitStunRemaining = 0;
+      this.knockbackVelocity = { x: 0, y: 0, z: 0 };
+      if (this.hitbox) this.hitbox.visible = false;
+      (this.mesh.material as THREE.MeshStandardMaterial).color.setHex(0x555555);
+    } else if (state !== FighterState.DOWN && this.isDown) {
+      this.attack.reset();
+      (this.mesh.material as THREE.MeshStandardMaterial)
+        .color.setHex(this.initialColor);
+    }
   }
 
   /** 렌더 프레임 보간 (alpha: 0~1) */
@@ -137,7 +176,9 @@ export class Arena {
   public linkCorrectionFrames = 0;
   public physicsCollisionCount = 0;
   public enemyLinkState: LinkState = LinkState.ARM_LOCK;
-  public matchResult: 'PLAYING' | 'PLAYER_WIN' | 'PLAYER_LOSE' | 'DRAW' = 'PLAYING';
+  public matchResult: MatchResult = MatchResult.PLAYING;
+  private damageDispatcher:
+    ((fighterId: string, damage: number) => boolean) | null = null;
 
   private constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
@@ -166,10 +207,18 @@ export class Arena {
     });
 
     // ── 파이터 ────────────────────────────
-    this.fighterA = new Fighter('player-left', 0x4fc3f7, -0.9, physics, true);
-    this.fighterB = new Fighter('player-right', 0x81c784, 0.9, physics, true);
-    this.enemyA = new Fighter('enemy-left', 0xef5350, -3, physics);
-    this.enemyB = new Fighter('enemy-right', 0xff7043, 3, physics);
+    this.fighterA = new Fighter(
+      'player-left', 0x4fc3f7, -0.9, physics, Team.PLAYER, FighterSlot.LEFT, true,
+    );
+    this.fighterB = new Fighter(
+      'player-right', 0x81c784, 0.9, physics, Team.PLAYER, FighterSlot.RIGHT, true,
+    );
+    this.enemyA = new Fighter(
+      'enemy-left', 0xef5350, -3, physics, Team.AI, FighterSlot.LEFT,
+    );
+    this.enemyB = new Fighter(
+      'enemy-right', 0xff7043, 3, physics, Team.AI, FighterSlot.RIGHT,
+    );
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach(f => scene.add(f.mesh));
     scene.add(this.fighterA.hitbox!, this.fighterB.hitbox!);
 
@@ -202,7 +251,7 @@ export class Arena {
     attackB: boolean,
     dt: number,
   ) {
-    const matchFinished = this.matchResult !== 'PLAYING';
+    const matchFinished = this.matchResult !== MatchResult.PLAYING;
     const playerDownCount = Number(this.fighterA.isDown) + Number(this.fighterB.isDown);
     const isDragging = playerDownCount === 1;
     const speed = GAME_CONFIG.FIGHTER_MOVE_SPEED *
@@ -354,8 +403,12 @@ export class Arena {
       const intersects = distance <= HITBOX_RADIUS + GAME_CONFIG.FIGHTER_RADIUS;
       if (!intersects || !attacker.attack.registerHit(target.id)) continue;
 
-      target.takeDamage(GAME_CONFIG.ATTACK_DAMAGE);
-      if (target.isDown) continue;
+      const sentToAuthority = this.damageDispatcher?.(
+        target.id,
+        GAME_CONFIG.ATTACK_DAMAGE,
+      ) ?? false;
+      if (!sentToAuthority) target.takeDamage(GAME_CONFIG.ATTACK_DAMAGE);
+      if (target.hp <= GAME_CONFIG.ATTACK_DAMAGE) continue;
       target.knockbackVelocity = {
         x: directionX * GAME_CONFIG.KNOCKBACK_FORCE,
         y: 0,
@@ -369,7 +422,7 @@ export class Arena {
     if (!fighter.hitbox) return;
     fighter.hitbox.visible =
       !fighter.isDown &&
-      this.matchResult === 'PLAYING' &&
+      this.matchResult === MatchResult.PLAYING &&
       fighter.attack.state === FighterState.ATTACK_ACTIVE;
     fighter.hitbox.position.set(
       fighter.mesh.position.x + directionX * HITBOX_OFFSET,
@@ -387,7 +440,7 @@ export class Arena {
     damage: number,
     deferMatchEvaluation = false,
   ): boolean {
-    if (this.matchResult !== 'PLAYING') return false;
+    if (this.matchResult !== MatchResult.PLAYING) return false;
     const applied = fighter.takeDamage(damage);
     if (!deferMatchEvaluation) this.updateDownAndMatchState();
     return applied;
@@ -396,6 +449,29 @@ export class Arena {
   /** 같은 tick 피해를 모두 defer한 뒤 한 번 호출하면 동시 다운을 판정할 수 있다. */
   evaluateMatchState() {
     this.updateDownAndMatchState();
+  }
+
+  setDamageDispatcher(
+    dispatcher: ((fighterId: string, damage: number) => boolean) | null,
+  ) {
+    this.damageDispatcher = dispatcher;
+  }
+
+  applyAuthoritativeState(snapshot: CombatStateSnapshot) {
+    const byId = new Map(snapshot.fighters.map((fighter) => [fighter.id, fighter]));
+    [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach((fighter) => {
+      const authoritative = byId.get(fighter.id);
+      if (authoritative) {
+        fighter.syncHealth(authoritative.hp, authoritative.state);
+      }
+    });
+    this.linkState = snapshot.playerLinkState;
+    this.enemyLinkState = snapshot.enemyLinkState;
+    this.matchResult = snapshot.result;
+    if (this.matchResult !== MatchResult.PLAYING) {
+      [this.fighterA, this.fighterB, this.enemyA, this.enemyB]
+        .forEach((fighter) => fighter.attack.cancel());
+    }
   }
 
   /** 그레이박스 반복 검증을 위해 경기 상태와 물리 위치를 초기 상태로 복구한다. */
@@ -410,27 +486,24 @@ export class Arena {
     this.linkViolationFrames = 0;
     this.linkCorrectionFrames = 0;
     this.physicsCollisionCount = 0;
-    this.matchResult = 'PLAYING';
+    this.matchResult = MatchResult.PLAYING;
   }
 
   private updateDownAndMatchState() {
-    const playerBothDown = this.fighterA.isDown && this.fighterB.isDown;
-    const enemyBothDown = this.enemyA.isDown && this.enemyB.isDown;
-    const playerOneDown = this.fighterA.isDown !== this.fighterB.isDown;
-    const enemyOneDown = this.enemyA.isDown !== this.enemyB.isDown;
+    const evaluation = evaluateTeamHealth(
+      [this.fighterA, this.fighterB, this.enemyA, this.enemyB].map((fighter) => ({
+        id: fighter.id,
+        team: fighter.team,
+        slot: fighter.slot,
+        hp: fighter.hp,
+        state: fighter.state,
+      })),
+    );
+    this.linkState = evaluation.playerLinkState;
+    this.enemyLinkState = evaluation.enemyLinkState;
+    this.matchResult = evaluation.result;
 
-    this.linkState = playerBothDown
-      ? LinkState.BOTH_DOWN
-      : playerOneDown ? LinkState.DOWN_DRAG : LinkState.ARM_LOCK;
-    this.enemyLinkState = enemyBothDown
-      ? LinkState.BOTH_DOWN
-      : enemyOneDown ? LinkState.DOWN_DRAG : LinkState.ARM_LOCK;
-
-    if (playerBothDown && enemyBothDown) this.matchResult = 'DRAW';
-    else if (playerBothDown) this.matchResult = 'PLAYER_LOSE';
-    else if (enemyBothDown) this.matchResult = 'PLAYER_WIN';
-
-    if (this.matchResult !== 'PLAYING') {
+    if (this.matchResult !== MatchResult.PLAYING) {
       [this.fighterA, this.fighterB, this.enemyA, this.enemyB]
         .forEach((fighter) => fighter.attack.cancel());
     }

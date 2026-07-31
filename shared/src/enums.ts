@@ -23,6 +23,13 @@ export enum FighterState {
   DISCONNECTED = 'DISCONNECTED',
 }
 
+export enum MatchResult {
+  PLAYING = 'PLAYING',
+  PLAYER_WIN = 'PLAYER_WIN',
+  PLAYER_LOSE = 'PLAYER_LOSE',
+  DRAW = 'DRAW',
+}
+
 // ─────────────────────────────────────────
 // 팀 링크 상태
 // ─────────────────────────────────────────

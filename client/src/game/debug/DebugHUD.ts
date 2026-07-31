@@ -1,8 +1,9 @@
 import type { GameScene } from '../core/GameScene';
 import type { Arena } from '../entities/Arena';
 import { GAME_CONFIG } from '@shared/constants';
-import { LinkTensionState } from '@shared/enums';
+import { LinkTensionState, MatchResult } from '@shared/enums';
 import type { NetworkSpike } from '../network/NetworkSpike';
+import type { CombatNetwork } from '../network/CombatNetwork';
 
 /**
  * Sprint 0 디버그 HUD
@@ -36,7 +37,12 @@ export class DebugHUD {
     document.body.appendChild(this.el);
   }
 
-  update(scene: GameScene, arena: Arena, network: NetworkSpike) {
+  update(
+    scene: GameScene,
+    arena: Arena,
+    network: NetworkSpike,
+    combatNetwork: CombatNetwork,
+  ) {
     const linkMax = arena.linkState === 'DOWN_DRAG'
       ? GAME_CONFIG.DOWN_DRAG_MAX_DIST
       : GAME_CONFIG.LINK_NORMAL_MAX_DIST;
@@ -60,9 +66,10 @@ export class DebugHUD {
       Player: ${arena.fighterA.hp} [${arena.fighterA.state}] / ${arena.fighterB.hp} [${arena.fighterB.state}]<br>
       Enemy: ${arena.enemyA.hp} [${arena.enemyA.state}] / ${arena.enemyB.hp} [${arena.enemyB.state}]<br>
       Enemy link: ${arena.enemyLinkState}<br>
-      Result: <b style="color:${arena.matchResult === 'PLAYING' ? '#69f0ae' : '#ff5252'}">${arena.matchResult}</b><br>
+      Result: <b style="color:${arena.matchResult === MatchResult.PLAYING ? '#69f0ae' : '#ff5252'}">${arena.matchResult}</b><br>
       ─────────────────<br>
       Network: <b>${network.status}</b><br>
+      Combat authority: <b>${combatNetwork.status}</b><br>
       Room: ${network.roomId}<br>
       Players: ${network.playerCount}/2 &nbsp; Ready: ${network.readyCount}/2<br>
       Revision: ${network.revision}<br>
