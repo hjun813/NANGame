@@ -1,5 +1,21 @@
 import { GAME_CONFIG } from './constants';
 import { FighterState } from './enums';
+import type { Vec3 } from './types';
+
+const HITBOX_RADIUS = 0.4;
+
+/** 서버와 클라이언트가 공유하는 기본 공격 구체 적중 판정. */
+export function isBasicAttackHit(
+  attackerPosition: Vec3,
+  targetPosition: Vec3,
+  directionX: -1 | 1,
+): boolean {
+  const hitboxOffset = GAME_CONFIG.ATTACK_RANGE - HITBOX_RADIUS;
+  const dx = targetPosition.x - (attackerPosition.x + directionX * hitboxOffset);
+  const dy = targetPosition.y - attackerPosition.y;
+  const dz = targetPosition.z - attackerPosition.z;
+  return Math.hypot(dx, dy, dz) <= HITBOX_RADIUS + GAME_CONFIG.FIGHTER_RADIUS;
+}
 
 /**
  * 클라이언트와 향후 권한형 서버에서 재사용할 기본 공격 상태 머신.
@@ -41,6 +57,23 @@ export class AttackStateMachine {
     this.state = FighterState.NORMAL;
     this.remaining = 0;
     this.hitTargets.clear();
+  }
+
+  /** 권한 서버의 상태를 클라이언트 표시용 머신에 반영한다. */
+  syncState(state: FighterState, attackId = this.attackId) {
+    if (state === FighterState.DOWN) {
+      this.forceDown();
+      return;
+    }
+    this.state = state;
+    this.attackId = Math.max(this.attackId, attackId);
+    this.remaining = state === FighterState.ATTACK_WINDUP
+      ? GAME_CONFIG.ATTACK_WINDUP
+      : state === FighterState.ATTACK_ACTIVE
+        ? GAME_CONFIG.ATTACK_ACTIVE
+        : state === FighterState.ATTACK_RECOVERY
+          ? GAME_CONFIG.ATTACK_RECOVERY
+          : 0;
   }
 
   update(dt: number) {

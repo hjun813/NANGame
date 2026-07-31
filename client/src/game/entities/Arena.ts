@@ -130,7 +130,7 @@ class Fighter {
     if (this.hitbox) this.hitbox.visible = false;
   }
 
-  syncHealth(hp: number, state: FighterState) {
+  syncHealth(hp: number, state: FighterState, attackId = this.attack.attackId) {
     this.hp = Math.max(0, hp);
     if (state === FighterState.DOWN && !this.isDown) {
       this.attack.forceDown();
@@ -142,6 +142,12 @@ class Fighter {
       this.attack.reset();
       (this.mesh.material as THREE.MeshStandardMaterial)
         .color.setHex(this.initialColor);
+    }
+    if (
+      state !== FighterState.DOWN &&
+      (this.attack.state !== state || this.attack.attackId !== attackId)
+    ) {
+      this.attack.syncState(state, attackId);
     }
   }
 
@@ -180,6 +186,7 @@ export class Arena {
   private serverResetRevision: number | null = null;
   private damageDispatcher:
     ((fighterId: string, damage: number) => boolean) | null = null;
+  private serverCombatAuthority = false;
 
   private constructor(scene: THREE.Scene, physics: PhysicsWorld) {
     this.scene = scene;
@@ -392,6 +399,7 @@ export class Arena {
 
   private resolveAttack(attacker: Fighter, directionX: -1 | 1) {
     if (attacker.isDown || attacker.attack.state !== FighterState.ATTACK_ACTIVE) return;
+    if (this.serverCombatAuthority) return;
 
     const hitboxCenter = {
       x: attacker.position.x + directionX * HITBOX_OFFSET,
@@ -458,6 +466,10 @@ export class Arena {
     this.damageDispatcher = dispatcher;
   }
 
+  setServerCombatAuthority(enabled: boolean) {
+    this.serverCombatAuthority = enabled;
+  }
+
   applyAuthoritativeState(snapshot: CombatStateSnapshot, ownedFighterId?: string) {
     const serverResetChanged = snapshot.resetRevision !== undefined &&
       snapshot.resetRevision !== this.serverResetRevision;
@@ -469,7 +481,11 @@ export class Arena {
     [this.fighterA, this.fighterB, this.enemyA, this.enemyB].forEach((fighter) => {
       const authoritative = byId.get(fighter.id);
       if (authoritative) {
-        fighter.syncHealth(authoritative.hp, authoritative.state);
+        fighter.syncHealth(
+          authoritative.hp,
+          authoritative.state,
+          authoritative.attackId,
+        );
         // 소유 캐릭터는 기존 Rapier 충돌 결과를 유지하고 원격 캐릭터만 따라간다.
         if (
           authoritative.position &&

@@ -30,7 +30,7 @@ export interface CombatStateSnapshot extends TeamHealthEvaluation {
   revision: number;
   /** 서버 경기 초기화 세대. 값이 바뀌면 클라이언트 물리 상태도 함께 초기화한다. */
   resetRevision?: number;
-  fighters: Array<HealthFighterState & { position?: Vec3 }>;
+  fighters: Array<HealthFighterState & { position?: Vec3; attackId?: number }>;
 }
 
 export interface CombatAssignmentMessage {
@@ -41,6 +41,12 @@ export interface CombatAssignmentMessage {
 export interface CombatPositionMessage {
   sequence: number;
   position: Vec3;
+}
+
+/** 실제 공격 요청. 대상과 피해량은 서버가 결정한다. */
+export interface CombatAttackMessage {
+  sequence: number;
+  attackerId: string;
 }
 
 export function createHealthFighter(

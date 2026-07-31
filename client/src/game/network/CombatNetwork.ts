@@ -2,6 +2,7 @@ import { Client, Room } from 'colyseus.js';
 import { EVENTS } from '@shared/constants';
 import type {
   CombatAssignmentMessage,
+  CombatAttackMessage,
   CombatDamageMessage,
   CombatPositionMessage,
   CombatStateSnapshot,
@@ -54,6 +55,12 @@ export class CombatNetwork {
   sendPosition(message: CombatPositionMessage): boolean {
     if (!this.room || !this.assignment) return false;
     this.room.send(EVENTS.COMBAT_POSITION, message);
+    return true;
+  }
+
+  sendAttack(message: CombatAttackMessage): boolean {
+    if (!this.room || !this.assignment) return false;
+    this.room.send(EVENTS.COMBAT_ATTACK, message);
     return true;
   }
 

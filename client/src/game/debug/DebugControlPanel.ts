@@ -4,7 +4,7 @@ import type { CombatNetwork } from '../network/CombatNetwork';
 
 /**
  * HP/다운 인수 테스트를 화면에서 재현하는 그레이박스 전용 패널.
- * 모든 피해는 Arena.applyDamage를 거쳐 실제 전투와 같은 규칙을 사용한다.
+ * 실제 공격 요청과 분리된 COMBAT_DAMAGE 개발 이벤트로 시나리오를 주입한다.
  */
 export class DebugControlPanel {
   private readonly el: HTMLDivElement;

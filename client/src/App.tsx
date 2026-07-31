@@ -32,6 +32,7 @@ export function App() {
     });
     let cancelled = false;
     let inputSequence = 0;
+    let attackSequence = 0;
 
     // 카메라 부드러운 추적용 현재 목표 위치
     const camTarget = new THREE.Vector3(0, 0, 0);
@@ -46,9 +47,6 @@ export function App() {
         arena = createdArena;
         const activeArena = createdArena;
         void combatNetwork.connect();
-        activeArena.setDamageDispatcher((fighterId, damage) =>
-          combatNetwork.sendDamage({ hits: [{ fighterId, damage }] }),
-        );
         debugControls = new DebugControlPanel(activeArena, combatNetwork);
         gameScene.start(
       // ── fixed update (1/60s) ──────────────
@@ -56,10 +54,21 @@ export function App() {
         const a = input.getPlayerAInput();
         const b = input.getPlayerBInput();
         const connectedSlot = combatNetwork.assignment?.slot;
+        activeArena.setServerCombatAuthority(!!connectedSlot);
         const localA = !connectedSlot || connectedSlot === FighterSlot.LEFT ? a : { x: 0, z: 0 };
         const localB = !connectedSlot || connectedSlot === FighterSlot.RIGHT ? b : { x: 0, z: 0 };
-        const attackA = (!connectedSlot || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
-        const attackB = (!connectedSlot || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
+        const requestedAttackA = (!connectedSlot || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
+        const requestedAttackB = (!connectedSlot || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
+        if (connectedSlot && (requestedAttackA || requestedAttackB)) {
+          combatNetwork.sendAttack({
+            sequence: ++attackSequence,
+            attackerId: connectedSlot === FighterSlot.LEFT
+              ? activeArena.fighterA.id
+              : activeArena.fighterB.id,
+          });
+        }
+        const attackA = !connectedSlot && requestedAttackA;
+        const attackB = !connectedSlot && requestedAttackB;
         activeArena.fixedUpdate(localA, localB, attackA, attackB, dt);
         const ownedFighterId = combatNetwork.assignment?.fighterId;
         const ownedPosition = ownedFighterId

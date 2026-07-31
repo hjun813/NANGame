@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { AttackStateMachine } = require('../dist/combat.js');
+const { AttackStateMachine, isBasicAttackHit } = require('../dist/combat.js');
 const { FighterState } = require('../dist/enums.js');
 
 const DT = 1 / 60;
@@ -67,4 +67,20 @@ test('공격 100회에서 각 공격은 같은 대상에게 한 번만 적중한
   }
 
   assert.equal(attack.attackId, 100);
+});
+
+test('기본 공격은 공격 방향과 구체 사거리 안의 대상만 적중한다', () => {
+  const attacker = { x: -1.8, y: 0.9, z: 0 };
+  assert.equal(isBasicAttackHit(attacker, { x: -3, y: 0.9, z: 0 }, -1), true);
+  assert.equal(isBasicAttackHit(attacker, { x: 0, y: 0.9, z: 0 }, -1), false);
+  assert.equal(isBasicAttackHit(attacker, { x: -3, y: 0.9, z: 2 }, -1), false);
+});
+
+test('서버 공격 상태와 attackId를 클라이언트 표시 머신에 동기화한다', () => {
+  const attack = new AttackStateMachine();
+  attack.syncState(FighterState.ATTACK_ACTIVE, 7);
+  assert.equal(attack.state, FighterState.ATTACK_ACTIVE);
+  assert.equal(attack.attackId, 7);
+  attack.syncState(FighterState.DOWN, 7);
+  assert.equal(attack.state, FighterState.DOWN);
 });

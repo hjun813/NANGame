@@ -1,8 +1,11 @@
 import { Client, Room } from 'colyseus';
 import {
   applyHealthDamage,
+  AttackStateMachine,
   createHealthFighter,
   evaluateTeamHealth,
+  GAME_CONFIG,
+  isBasicAttackHit,
 } from 'linked-fighters-shared';
 import {
   EVENTS,
@@ -12,6 +15,7 @@ import {
 } from 'linked-fighters-shared';
 import type { HealthFighterState } from 'linked-fighters-shared';
 import type {
+  CombatAttackMessage,
   CombatDamageMessage,
   CombatPositionMessage,
   CombatStateSnapshot,
@@ -28,10 +32,14 @@ export class CombatRoom extends Room {
   private positions = this.createInitialPositions();
   private readonly assignments = new Map<string, FighterSlot>();
   private readonly positionSequences = new Map<FighterSlot, number>();
+  private readonly attackSequences = new Map<FighterSlot, number>();
+  private attacks = this.createAttackMachines();
   private revision = 0;
   private resetRevision = 0;
 
   onCreate() {
+    // COMBAT_DAMAGE는 그레이박스 수동 테스트 전용이다.
+    // 실제 F/L 공격은 COMBAT_ATTACK에서 대상과 피해량을 서버가 결정한다.
     this.onMessage(
       EVENTS.COMBAT_DAMAGE,
       (_client, message: unknown) => this.handleDamage(message),
@@ -39,6 +47,7 @@ export class CombatRoom extends Room {
     this.onMessage(EVENTS.COMBAT_RESET, () => {
       this.fighters = this.createInitialFighters();
       this.positions = this.createInitialPositions();
+      this.attacks = this.createAttackMachines();
       this.resetRevision++;
       this.revision++;
       this.broadcastState();
@@ -46,10 +55,16 @@ export class CombatRoom extends Room {
     this.onMessage(EVENTS.COMBAT_POSITION, (client, message: unknown) => {
       this.handlePosition(client, message);
     });
+    this.onMessage(EVENTS.COMBAT_ATTACK, (client, message: unknown) => {
+      this.handleAttack(client, message);
+    });
     this.onMessage(EVENTS.COMBAT_REQUEST_STATE, (client) => {
       this.sendAssignment(client);
       client.send(EVENTS.COMBAT_STATE, this.createStateMessage());
     });
+    this.setSimulationInterval((deltaTime) => {
+      this.updateAttacks(Math.min(deltaTime / 1000, 0.1));
+    }, 1000 / GAME_CONFIG.SERVER_TICK_RATE);
   }
 
   onJoin(client: Client) {
@@ -65,6 +80,7 @@ export class CombatRoom extends Room {
   onLeave(client: Client) {
     const slot = this.assignments.get(client.sessionId);
     if (slot) this.positionSequences.delete(slot);
+    if (slot) this.attackSequences.delete(slot);
     this.assignments.delete(client.sessionId);
   }
 
@@ -101,6 +117,71 @@ export class CombatRoom extends Room {
     return Number.isSafeInteger(candidate.sequence) && !!position &&
       Number.isFinite(position.x) && Number.isFinite(position.y) &&
       Number.isFinite(position.z);
+  }
+
+  private handleAttack(client: Client, message: unknown) {
+    const slot = this.assignments.get(client.sessionId);
+    if (!slot || !this.isAttackMessage(message)) return;
+    const attackerId = slot === FighterSlot.LEFT ? 'player-left' : 'player-right';
+    if (message.attackerId !== attackerId) return;
+    const previousSequence = this.attackSequences.get(slot) ?? -1;
+    if (message.sequence <= previousSequence) return;
+    this.attackSequences.set(slot, message.sequence);
+    if (evaluateTeamHealth(this.fighters).result !== MatchResult.PLAYING) return;
+    const fighter = this.fighters.find((candidate) => candidate.id === attackerId);
+    const attack = this.attacks[attackerId];
+    if (!fighter || fighter.state === 'DOWN' || !attack.tryStart()) return;
+    fighter.state = attack.state;
+    this.revision++;
+    this.broadcastState();
+  }
+
+  private isAttackMessage(message: unknown): message is CombatAttackMessage {
+    if (!message || typeof message !== 'object') return false;
+    const candidate = message as Partial<CombatAttackMessage>;
+    return Number.isSafeInteger(candidate.sequence) &&
+      typeof candidate.attackerId === 'string';
+  }
+
+  private updateAttacks(dt: number) {
+    let stateChanged = false;
+    for (const attackerId of ['player-left', 'player-right']) {
+      const fighter = this.fighters.find((candidate) => candidate.id === attackerId);
+      const attack = this.attacks[attackerId];
+      if (!fighter || fighter.state === 'DOWN') continue;
+      const previousState = attack.state;
+      attack.update(dt);
+      fighter.state = attack.state;
+      if (attack.state !== previousState) stateChanged = true;
+      if (previousState !== 'ATTACK_ACTIVE' && attack.state === 'ATTACK_ACTIVE') {
+        if (this.resolveServerAttack(attackerId, attack)) stateChanged = true;
+      }
+    }
+    if (!stateChanged) return;
+    this.revision++;
+    this.broadcastState();
+  }
+
+  private resolveServerAttack(attackerId: string, attack: AttackStateMachine): boolean {
+    const directionX: -1 | 1 = attackerId === 'player-left' ? -1 : 1;
+    let changed = false;
+    for (const target of this.fighters.filter((fighter) => fighter.team === Team.AI)) {
+      if (
+        target.state === 'DOWN' ||
+        !isBasicAttackHit(
+          this.positions[attackerId],
+          this.positions[target.id],
+          directionX,
+        ) ||
+        !attack.registerHit(target.id)
+      ) continue;
+      const index = this.fighters.findIndex((fighter) => fighter.id === target.id);
+      const result = applyHealthDamage(this.fighters[index], GAME_CONFIG.ATTACK_DAMAGE);
+      if (!result.applied) continue;
+      this.fighters[index] = result.fighter;
+      changed = true;
+    }
+    return changed;
   }
 
   private handleDamage(message: unknown) {
@@ -150,6 +231,7 @@ export class CombatRoom extends Room {
       resetRevision: this.resetRevision,
       fighters: this.fighters.map((fighter) => ({
         ...fighter,
+        attackId: this.attacks[fighter.id]?.attackId ?? 0,
         position: { ...this.positions[fighter.id] },
       })),
       playerLinkState: evaluation.playerLinkState,
@@ -173,6 +255,13 @@ export class CombatRoom extends Room {
       'player-right': { x: 1, y: 0.9, z: 0 },
       'enemy-left': { x: -3, y: 0.9, z: 0 },
       'enemy-right': { x: 3, y: 0.9, z: 0 },
+    };
+  }
+
+  private createAttackMachines(): Record<string, AttackStateMachine> {
+    return {
+      'player-left': new AttackStateMachine(),
+      'player-right': new AttackStateMachine(),
     };
   }
 }

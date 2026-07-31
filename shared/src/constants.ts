@@ -60,4 +60,5 @@ export const EVENTS = {
   COMBAT_STATE: 'combat_state',
   COMBAT_ASSIGNMENT: 'combat_assignment',
   COMBAT_POSITION: 'combat_position',
+  COMBAT_ATTACK: 'combat_attack',
 } as const;
