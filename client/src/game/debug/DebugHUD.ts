@@ -37,7 +37,10 @@ export class DebugHUD {
   }
 
   update(scene: GameScene, arena: Arena, network: NetworkSpike) {
-    const linkPct = Math.round((arena.linkDistance / GAME_CONFIG.LINK_NORMAL_MAX_DIST) * 100);
+    const linkMax = arena.linkState === 'DOWN_DRAG'
+      ? GAME_CONFIG.DOWN_DRAG_MAX_DIST
+      : GAME_CONFIG.LINK_NORMAL_MAX_DIST;
+    const linkPct = Math.round((arena.linkDistance / linkMax) * 100);
     const stateColor = arena.linkTensionState === LinkTensionState.RELAXED ? '#69f0ae' : '#ff5252';
 
     this.el.innerHTML = `
@@ -46,7 +49,7 @@ export class DebugHUD {
       Fixed steps: ${scene.fixedStepCount}<br>
       Rapier collisions: ${arena.physicsCollisionCount}<br>
       ─────────────────<br>
-      Link dist: <b>${arena.linkDistance.toFixed(3)}m</b> / ${GAME_CONFIG.LINK_NORMAL_MAX_DIST}m<br>
+      Link dist: <b>${arena.linkDistance.toFixed(3)}m</b> / ${linkMax}m<br>
       Max observed: ${arena.maxObservedLinkDistance.toFixed(3)}m<br>
       Limit violations: <b>${arena.linkViolationFrames}</b> frames<br>
       Corrections: ${arena.linkCorrectionFrames} frames<br>
@@ -54,9 +57,10 @@ export class DebugHUD {
       Link state: <b>${arena.linkState}</b><br>
       Tension: <span style="color:${stateColor}"><b>${arena.linkTensionState}</b></span><br>
       ─────────────────<br>
-      Left attack [F]: ${arena.fighterA.attack.state}<br>
-      Right attack [L]: ${arena.fighterB.attack.state}<br>
-      Enemy HP: ${arena.enemyA.hp} / ${arena.enemyB.hp}<br>
+      Player: ${arena.fighterA.hp} [${arena.fighterA.state}] / ${arena.fighterB.hp} [${arena.fighterB.state}]<br>
+      Enemy: ${arena.enemyA.hp} [${arena.enemyA.state}] / ${arena.enemyB.hp} [${arena.enemyB.state}]<br>
+      Enemy link: ${arena.enemyLinkState}<br>
+      Result: <b style="color:${arena.matchResult === 'PLAYING' ? '#69f0ae' : '#ff5252'}">${arena.matchResult}</b><br>
       ─────────────────<br>
       Network: <b>${network.status}</b><br>
       Room: ${network.roomId}<br>

@@ -60,3 +60,27 @@ test('한 명만 바깥으로 이동해도 양쪽을 보정하고 중점을 보�
   assert.ok(Math.abs((result.positionA.x + result.positionB.x) / 2 - 0.05) < 1e-9);
   assert.ok(vec3Distance(result.positionA, result.positionB) <= MAX_DISTANCE + 0.001);
 });
+
+test('다운 팀원 드래그가 30초 동안 최대 후행 거리 안에서 안정적이다', () => {
+  const dragMaxDistance = 2.5;
+  let survivor = { x: -0.9, y: 0, z: 0 };
+  let down = { x: 0.9, y: 0, z: 0 };
+  const survivorDelta = { x: 0, y: 0, z: (5 * 0.7) / 60 };
+
+  for (let step = 0; step < 30 * 60; step++) {
+    const result = correctLinkedMovement(
+      survivor,
+      down,
+      survivorDelta,
+      ZERO,
+      dragMaxDistance,
+    );
+    survivor = result.positionA;
+    down = result.positionB;
+
+    assert.ok(Number.isFinite(survivor.z) && Number.isFinite(down.z));
+    assert.ok(vec3Distance(survivor, down) <= dragMaxDistance + 0.001);
+  }
+
+  assert.ok(down.z > 0, '다운 파이터가 생존 파이터를 따라와야 한다');
+});

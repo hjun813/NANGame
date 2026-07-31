@@ -22,6 +22,19 @@ test('공격이 WINDUP, ACTIVE, RECOVERY, NORMAL 순서로 전환된다', () => 
   advanceUntil(attack, FighterState.NORMAL);
 });
 
+test('다운 전환은 진행 중인 공격을 즉시 취소하고 재공격을 차단한다', () => {
+  const attack = new AttackStateMachine();
+  attack.tryStart();
+  advanceUntil(attack, FighterState.ATTACK_ACTIVE);
+
+  attack.forceDown();
+
+  assert.equal(attack.state, FighterState.DOWN);
+  assert.equal(attack.tryStart(), false);
+  attack.update(10);
+  assert.equal(attack.state, FighterState.DOWN);
+});
+
 test('한 공격은 같은 대상에게 한 번만 적중한다', () => {
   const attack = new AttackStateMachine();
   attack.tryStart();

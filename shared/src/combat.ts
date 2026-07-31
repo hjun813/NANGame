@@ -21,6 +21,21 @@ export class AttackStateMachine {
     return true;
   }
 
+  /** 체력 0 전환 시 진행 중인 공격을 즉시 취소한다. */
+  forceDown() {
+    this.state = FighterState.DOWN;
+    this.remaining = 0;
+    this.hitTargets.clear();
+  }
+
+  /** 경기 종료처럼 외부 규칙이 전투를 중단할 때 정상 대기 상태로 되돌린다. */
+  cancel() {
+    if (this.state === FighterState.DOWN) return;
+    this.state = FighterState.NORMAL;
+    this.remaining = 0;
+    this.hitTargets.clear();
+  }
+
   update(dt: number) {
     if (
       this.state !== FighterState.ATTACK_WINDUP &&
