@@ -81,7 +81,7 @@ export class GameScene {
    */
   start(
     onFixedUpdate: (dt: number) => void,
-    onRender?: (alpha: number) => void
+    onRender?: (alpha: number, deltaTime: number) => void
   ) {
     if (this.rafId !== null) return; // 중복 방지
 
@@ -112,7 +112,7 @@ export class GameScene {
       }
 
       const alpha = this.accumulator / this.FIXED_DT;
-      onRender?.(alpha);
+      onRender?.(alpha, delta);
 
       this.renderer.render(this.scene, this.camera);
       this.rafId = requestAnimationFrame(loop);

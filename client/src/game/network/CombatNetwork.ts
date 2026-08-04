@@ -7,11 +7,13 @@ import type {
   CombatPositionMessage,
   CombatStateSnapshot,
 } from '@shared/health';
+import { COMBAT_SERVER_URL } from './networkConfig';
 
 export class CombatNetwork {
   public status: CombatConnectionStatus = 'CONNECTING';
   private room: Room | null = null;
   private disposed = false;
+  private connecting = false;
   public assignment: CombatAssignmentMessage | null = null;
   public roomId = '-';
   public sessionId = '-';
@@ -29,7 +31,10 @@ export class CombatNetwork {
   }
 
   async connect() {
-    const endpoint = import.meta.env.VITE_SERVER_URL || 'ws://localhost:2567';
+    if (this.disposed || this.room || this.connecting) return;
+    this.connecting = true;
+    const endpoint = COMBAT_SERVER_URL;
+    this.setStatus('CONNECTING');
     try {
       const room = await new Client(endpoint).joinOrCreate('combat_room');
       if (this.disposed) {
@@ -60,8 +65,13 @@ export class CombatNetwork {
         this.setStatus('ERROR');
       });
       room.send(EVENTS.COMBAT_REQUEST_STATE);
-    } catch {
-      if (!this.disposed) this.setStatus('ERROR');
+    } catch (error) {
+      if (!this.disposed) {
+        console.error('Combat server connection failed', error);
+        this.setStatus('ERROR');
+      }
+    } finally {
+      this.connecting = false;
     }
   }
 
@@ -80,12 +90,6 @@ export class CombatNetwork {
   sendDamage(message: CombatDamageMessage): boolean {
     if (!this.room) return false;
     this.room.send(EVENTS.COMBAT_DAMAGE, message);
-    return true;
-  }
-
-  reset(): boolean {
-    if (!this.room) return false;
-    this.room.send(EVENTS.COMBAT_RESET);
     return true;
   }
 

@@ -64,13 +64,15 @@ export class CombatRoom extends Room {
   private rematchReady: RematchReady = createRematchReady();
 
   onCreate() {
-    // COMBAT_DAMAGE는 그레이박스 수동 테스트 전용이다.
+    console.info(`[combat] room created id=${this.roomId}`);
+    // 임의 피해 주입은 명시적으로 허용한 비운영 환경에서만 등록한다.
     // 실제 F/L 공격은 COMBAT_ATTACK에서 대상과 피해량을 서버가 결정한다.
-    this.onMessage(
-      EVENTS.COMBAT_DAMAGE,
-      (_client, message: unknown) => this.handleDamage(message),
-    );
-    this.onMessage(EVENTS.COMBAT_RESET, () => undefined);
+    if (isDebugCombatCommandEnabled()) {
+      this.onMessage(
+        EVENTS.COMBAT_DAMAGE,
+        (_client, message: unknown) => this.handleDamage(message),
+      );
+    }
     this.onMessage(EVENTS.COMBAT_REMATCH, (client) => {
       this.handleRematchRequest(client);
     });
@@ -95,6 +97,9 @@ export class CombatRoom extends Room {
       ? FighterSlot.RIGHT
       : FighterSlot.LEFT;
     this.assignments.set(client.sessionId, slot);
+    console.info(
+      `[combat] join room=${this.roomId} session=${maskSessionId(client.sessionId)} slot=${slot} players=${this.assignments.size}`,
+    );
     this.sendAssignment(client);
     if (this.assignments.size === this.maxClients) {
       this.startCountdown();
@@ -107,6 +112,9 @@ export class CombatRoom extends Room {
     if (slot) this.positionSequences.delete(slot);
     if (slot) this.attackSequences.delete(slot);
     this.assignments.delete(client.sessionId);
+    console.info(
+      `[combat] leave room=${this.roomId} session=${maskSessionId(client.sessionId)} players=${this.assignments.size}`,
+    );
     this.resetMatchData();
     this.gameState = GameState.WAITING;
     this.countdownRemaining = 0;
@@ -121,6 +129,7 @@ export class CombatRoom extends Room {
     if (request.allReady && this.assignments.size === this.maxClients) {
       this.resetMatchData();
       this.startCountdown();
+      console.info(`[combat] rematch room=${this.roomId} resetRevision=${this.resetRevision}`);
     } else {
       this.revision++;
     }
@@ -506,12 +515,14 @@ export class CombatRoom extends Room {
     this.timeRemaining = GAME_CONFIG.MATCH_DURATION;
     this.matchResult = MatchResult.PLAYING;
     this.revision++;
+    console.info(`[combat] state room=${this.roomId} gameState=${this.gameState}`);
   }
 
   private finishMatch(result: MatchResult) {
     if (result === MatchResult.PLAYING) return;
     this.matchResult = result;
     this.gameState = GameState.FINISHED;
+    console.info(`[combat] finished room=${this.roomId} result=${result}`);
     this.aiStates = this.aiStates.map((ai) => ({
       ...ai,
       state: AIState.IDLE,
@@ -589,4 +600,15 @@ export class CombatRoom extends Room {
       },
     };
   }
+}
+
+export function isDebugCombatCommandEnabled(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.NODE_ENV !== 'production'
+    && environment.ENABLE_DEBUG_COMBAT_COMMANDS === 'true';
+}
+
+function maskSessionId(sessionId: string): string {
+  return sessionId.length <= 6 ? sessionId : `${sessionId.slice(0, 6)}…`;
 }

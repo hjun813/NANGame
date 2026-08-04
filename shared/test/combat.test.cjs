@@ -98,3 +98,11 @@ test('서버 공격 상태와 attackId를 클라이언트 표시 머신에 동�
   attack.syncState(FighterState.DOWN, 7);
   assert.equal(attack.state, FighterState.DOWN);
 });
+
+test('경기 reset은 클라이언트 공격 세대도 0으로 초기화한다', () => {
+  const attack = new AttackStateMachine();
+  attack.syncState(FighterState.ATTACK_RECOVERY, 7);
+  attack.reset();
+  assert.equal(attack.state, FighterState.NORMAL);
+  assert.equal(attack.attackId, 0);
+});

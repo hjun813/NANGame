@@ -40,7 +40,7 @@ export class DebugHUD {
   update(
     scene: GameScene,
     arena: Arena,
-    network: NetworkSpike,
+    network: NetworkSpike | null,
     combatNetwork: CombatNetwork,
   ) {
     const linkMax = arena.linkState === 'DOWN_DRAG'
@@ -72,14 +72,14 @@ export class DebugHUD {
       Enemy link: ${arena.enemyLinkState}<br>
       Result: <b style="color:${arena.matchResult === MatchResult.PLAYING ? '#69f0ae' : '#ff5252'}">${arena.matchResult}</b><br>
       ─────────────────<br>
-      Network: <b>${network.status}</b><br>
+      Network spike: <b>${network?.status ?? 'DISABLED'}</b><br>
       Combat authority: <b>${combatNetwork.status}</b><br>
       Assigned fighter: <b>${combatNetwork.assignment?.fighterId ?? 'LOCAL BOTH'}</b><br>
       Combat room: <b>${combatNetwork.roomId}</b><br>
-      Lobby spike room: ${network.roomId}<br>
-      Players: ${network.playerCount}/2 &nbsp; Ready: ${network.readyCount}/2<br>
-      Revision: ${network.revision}<br>
-      ${network.error ? `<span style="color:#ff5252">${network.error}</span><br>` : ''}
+      Lobby spike room: ${network?.roomId ?? '-'}<br>
+      Players: ${network?.playerCount ?? 0}/2 &nbsp; Ready: ${network?.readyCount ?? 0}/2<br>
+      Revision: ${network?.revision ?? 0}<br>
+      ${network?.error ? `<span style="color:#ff5252">${network.error}</span><br>` : ''}
       Press N: toggle network ready<br>
       ─────────────────<br>
       <span style="color:#90caf9">A: WASD</span> &nbsp; <span style="color:#a5d6a7">B: Arrow</span>

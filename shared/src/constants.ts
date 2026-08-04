@@ -67,7 +67,6 @@ export const EVENTS = {
   SPIKE_REQUEST_STATE: 'spike_request_state',
   SPIKE_STATE: 'spike_state',
   COMBAT_DAMAGE: 'combat_damage',
-  COMBAT_RESET: 'combat_reset',
   COMBAT_REQUEST_STATE: 'combat_request_state',
   COMBAT_STATE: 'combat_state',
   COMBAT_ASSIGNMENT: 'combat_assignment',

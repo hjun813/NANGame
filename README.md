@@ -71,6 +71,8 @@
 | 빌드 도구 | Vite |
 | 배포 | 정적 웹 호스팅 + Node.js 서버 |
 
+외부 MVP 테스트 배포 절차는 [`docs/13_deployment_guide.md`](docs/13_deployment_guide.md)를 따른다.
+
 ---
 
 ## 문서 버전 관리

@@ -35,7 +35,6 @@ export class DebugControlPanel {
       <button data-action="player-lose">Player 두 명 DOWN</button>
       <button data-action="enemy-win">Enemy 두 명 DOWN</button>
       <button data-action="draw">동시 DOWN (DRAW)</button>
-      <button data-action="reset">경기 초기화</button>
     `;
     this.renderFighterButtons();
     this.styleButtons();
@@ -96,27 +95,23 @@ export class DebugControlPanel {
 
     switch (button.dataset.action) {
       case 'player-one-down':
-        this.arena.resetMatch();
         this.sendScenario([
           { fighterId: this.arena.fighterA.id, damage: GAME_CONFIG.FIGHTER_MAX_HP },
         ]);
         break;
       case 'player-lose':
-        this.arena.resetMatch();
         this.sendScenario([
           { fighterId: this.arena.fighterA.id, damage: GAME_CONFIG.FIGHTER_MAX_HP },
           { fighterId: this.arena.fighterB.id, damage: GAME_CONFIG.FIGHTER_MAX_HP },
         ]);
         break;
       case 'enemy-win':
-        this.arena.resetMatch();
         this.sendScenario([
           { fighterId: this.arena.enemyA.id, damage: GAME_CONFIG.FIGHTER_MAX_HP },
           { fighterId: this.arena.enemyB.id, damage: GAME_CONFIG.FIGHTER_MAX_HP },
         ]);
         break;
       case 'draw':
-        this.arena.resetMatch();
         this.sendScenario(
           [this.arena.fighterA, this.arena.fighterB, this.arena.enemyA, this.arena.enemyB]
             .map((fighter) => ({
@@ -125,19 +120,11 @@ export class DebugControlPanel {
             })),
         );
         break;
-      case 'reset':
-        this.arena.resetMatch();
-        this.combatNetwork.reset();
-        break;
     }
   };
 
   private sendScenario(hits: Array<{ fighterId: string; damage: number }>) {
-    if (this.combatNetwork.reset()) {
-      // Colyseus는 동일 연결의 메시지 순서를 보장하므로 reset 다음 damage가 적용된다.
-      this.combatNetwork.sendDamage({ hits });
-      return;
-    }
+    if (this.combatNetwork.sendDamage({ hits })) return;
     hits.forEach(({ fighterId, damage }) => {
       const fighter = [
         this.arena.fighterA,

@@ -1,5 +1,6 @@
 import { Client, Room } from 'colyseus.js';
 import { EVENTS } from '@shared/constants';
+import { COMBAT_SERVER_URL } from './networkConfig';
 
 interface SpikeStateMessage {
   roomId: string;
@@ -32,7 +33,7 @@ export class NetworkSpike {
   }
 
   async connect() {
-    const endpoint = import.meta.env.VITE_SERVER_URL || 'ws://localhost:2567';
+    const endpoint = COMBAT_SERVER_URL;
 
     try {
       const room = await new Client(endpoint).joinOrCreate('spike_room');

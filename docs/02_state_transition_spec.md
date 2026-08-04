@@ -50,7 +50,7 @@
 | `COUNTDOWN` | 시작 전 카운트다운 |
 | `PLAYING` | 이동과 전투 가능 |
 | `FINISHED` | 승패 결정 완료 |
-| `DISCONNECTED` | 필수 플레이어 이탈로 종료 |
+| `DISCONNECTED` | 향후 이탈 결과 화면용 예약 상태(MVP 서버에서는 사용하지 않음) |
 
 ## 3.2 상태 전이표
 
@@ -58,13 +58,15 @@
 |---|---|---|---|---|
 | WAITING | 초기화 완료 | 캐릭터 4명 생성 | COUNTDOWN | 타이머 3초 설정 |
 | COUNTDOWN | 카운트다운 종료 | 플레이어 연결 정상 | PLAYING | 입력 활성화 |
-| COUNTDOWN | 플레이어 이탈 | 항상 | DISCONNECTED | 경기 종료 |
+| COUNTDOWN | 플레이어 이탈 | 항상 | WAITING | 경기 데이터 초기화, 입력 차단 |
 | PLAYING | 한 팀 전원 다운 | 항상 | FINISHED | 승패 계산 |
 | PLAYING | 시간 0 | 항상 | FINISHED | 시간 종료 판정 |
 | PLAYING | 양 팀 동시 전원 다운 | 같은 서버 틱 | FINISHED | 무승부 |
-| PLAYING | 플레이어 이탈 | MVP 규칙 | DISCONNECTED | 이탈 결과 |
-| FINISHED | 재경기 초기화 | 두 명 동의 | WAITING | 모든 상태 초기화 |
-| DISCONNECTED | 결과 확인 | 항상 | FINISHED | 종료 화면 표시 |
+| PLAYING | 플레이어 이탈 | MVP 규칙 | WAITING | 경기 데이터 초기화, 남은 클라이언트 대기 |
+| FINISHED | 재경기 초기화 | 두 명 동의 | COUNTDOWN | 모든 상태 초기화 후 3초 카운트다운 |
+
+> 현재 MVP의 서버 권위 상태 흐름은 `WAITING → COUNTDOWN → PLAYING → FINISHED`이다.
+> 연결 이탈은 별도 결과를 만들지 않고 안전한 `WAITING` 복귀로 통일한다.
 
 ---
 

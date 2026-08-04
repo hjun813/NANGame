@@ -18,6 +18,7 @@ import type { AIStateSnapshot } from '@shared/ai';
 import type { Vec3 } from '@shared/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { PhysicsCharacter } from '../physics/PhysicsWorld';
+import { CharacterView } from '../characters/CharacterView';
 
 const ARENA_SIZE = 10; // 경기장 반폭 (m)
 const HITBOX_RADIUS = 0.4;
@@ -29,7 +30,8 @@ const HITBOX_OFFSET = GAME_CONFIG.ATTACK_RANGE - HITBOX_RADIUS;
  */
 class Fighter {
   id: string;
-  mesh: THREE.Mesh;
+  mesh: THREE.Group;
+  readonly view: CharacterView;
   hitbox: THREE.Mesh | null;
   position: Vec3;
   prevPosition: Vec3; // 보간용 이전 위치
@@ -39,7 +41,6 @@ class Fighter {
   knockbackVelocity: Vec3 = { x: 0, y: 0, z: 0 };
   hitStunRemaining = 0;
   private readonly initialPosition: Vec3;
-  private readonly initialColor: number;
   readonly team: Team;
   readonly slot: FighterSlot;
 
@@ -55,11 +56,8 @@ class Fighter {
     this.id = id;
     this.team = team;
     this.slot = slot;
-    this.initialColor = color;
-    const geo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
-    const mat = new THREE.MeshStandardMaterial({ color });
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.castShadow = true;
+    this.view = new CharacterView({ fighterId: id, team, slot, color });
+    this.mesh = this.view.root;
     this.position = { x: startX, y: 0.9, z: 0 };
     this.initialPosition = { ...this.position };
     this.prevPosition = { ...this.position };
@@ -110,7 +108,6 @@ class Fighter {
       this.hitStunRemaining = 0;
       this.knockbackVelocity = { x: 0, y: 0, z: 0 };
       if (this.hitbox) this.hitbox.visible = false;
-      (this.mesh.material as THREE.MeshStandardMaterial).color.setHex(0x555555);
     }
     return true;
   }
@@ -128,8 +125,7 @@ class Fighter {
       this.initialPosition.y,
       this.initialPosition.z,
     );
-    (this.mesh.material as THREE.MeshStandardMaterial)
-      .color.setHex(this.initialColor);
+    this.view.reset();
     if (this.hitbox) this.hitbox.visible = false;
   }
 
@@ -140,11 +136,8 @@ class Fighter {
       this.hitStunRemaining = 0;
       this.knockbackVelocity = { x: 0, y: 0, z: 0 };
       if (this.hitbox) this.hitbox.visible = false;
-      (this.mesh.material as THREE.MeshStandardMaterial).color.setHex(0x555555);
     } else if (state !== FighterState.DOWN && this.isDown) {
       this.attack.reset();
-      (this.mesh.material as THREE.MeshStandardMaterial)
-        .color.setHex(this.initialColor);
     }
     if (
       state !== FighterState.DOWN &&
@@ -155,12 +148,21 @@ class Fighter {
   }
 
   /** 렌더 프레임 보간 (alpha: 0~1) */
-  interpolate(alpha: number) {
-    this.mesh.position.set(
-      THREE.MathUtils.lerp(this.prevPosition.x, this.position.x, alpha),
-      THREE.MathUtils.lerp(this.prevPosition.y, this.position.y, alpha),
-      THREE.MathUtils.lerp(this.prevPosition.z, this.position.z, alpha),
-    );
+  interpolate(alpha: number, deltaTime: number) {
+    this.view.setTransform({
+      x: THREE.MathUtils.lerp(this.prevPosition.x, this.position.x, alpha),
+      y: THREE.MathUtils.lerp(this.prevPosition.y, this.position.y, alpha),
+      z: THREE.MathUtils.lerp(this.prevPosition.z, this.position.z, alpha),
+    }, this.state, this.attack.attackId, deltaTime);
+  }
+
+  destroy() {
+    this.view.destroy();
+    if (this.hitbox) {
+      this.hitbox.removeFromParent();
+      this.hitbox.geometry.dispose();
+      (this.hitbox.material as THREE.Material).dispose();
+    }
   }
 }
 
@@ -391,34 +393,42 @@ export class Arena {
   }
 
   /** 렌더 프레임마다 링크 선 + 보간 적용 */
-  render(alpha: number) {
-    this.fighterA.interpolate(alpha);
-    this.fighterB.interpolate(alpha);
-    this.enemyA.interpolate(alpha);
-    this.enemyB.interpolate(alpha);
-    this.updateHitbox(this.fighterA, -1);
-    this.updateHitbox(this.fighterB, 1);
-    this.updateAIHitbox(this.enemyA, this.enemyB);
-    this.updateAIHitbox(this.enemyB, this.enemyA);
+  render(alpha: number, deltaTime = 1 / 60) {
+    this.fighterA.interpolate(alpha, deltaTime);
+    this.fighterB.interpolate(alpha, deltaTime);
+    this.enemyA.interpolate(alpha, deltaTime);
+    this.enemyB.interpolate(alpha, deltaTime);
+    this.orientAttack(this.fighterA, -1, 0, deltaTime);
+    this.orientAttack(this.fighterB, 1, 0, deltaTime);
+    this.orientAttack(
+      this.enemyA,
+      this.enemyA.mesh.position.x - this.enemyB.mesh.position.x,
+      this.enemyA.mesh.position.z - this.enemyB.mesh.position.z,
+      deltaTime,
+    );
+    this.orientAttack(
+      this.enemyB,
+      this.enemyB.mesh.position.x - this.enemyA.mesh.position.x,
+      this.enemyB.mesh.position.z - this.enemyA.mesh.position.z,
+      deltaTime,
+    );
+    this.updateHitbox(this.fighterA);
+    this.updateHitbox(this.fighterB);
+    this.updateAIHitbox(this.enemyA);
+    this.updateAIHitbox(this.enemyB);
 
     // 링크 선 업데이트
     const positions = this.linkLine.geometry.getAttribute('position') as THREE.BufferAttribute;
-    positions.setXYZ(
-      0,
-      this.fighterA.mesh.position.x,
-      this.fighterA.mesh.position.y,
-      this.fighterA.mesh.position.z,
-    );
-    positions.setXYZ(
-      1,
-      this.fighterB.mesh.position.x,
-      this.fighterB.mesh.position.y,
-      this.fighterB.mesh.position.z,
-    );
+    const playerAnchorA = this.fighterA.view.getLinkAnchorWorldPosition();
+    const playerAnchorB = this.fighterB.view.getLinkAnchorWorldPosition();
+    positions.setXYZ(0, playerAnchorA.x, playerAnchorA.y, playerAnchorA.z);
+    positions.setXYZ(1, playerAnchorB.x, playerAnchorB.y, playerAnchorB.z);
     positions.needsUpdate = true;
     const enemyPositions = this.enemyLinkLine.geometry.getAttribute('position') as THREE.BufferAttribute;
-    enemyPositions.setXYZ(0, this.enemyA.mesh.position.x, this.enemyA.mesh.position.y, this.enemyA.mesh.position.z);
-    enemyPositions.setXYZ(1, this.enemyB.mesh.position.x, this.enemyB.mesh.position.y, this.enemyB.mesh.position.z);
+    const enemyAnchorA = this.enemyA.view.getLinkAnchorWorldPosition();
+    const enemyAnchorB = this.enemyB.view.getLinkAnchorWorldPosition();
+    enemyPositions.setXYZ(0, enemyAnchorA.x, enemyAnchorA.y, enemyAnchorA.z);
+    enemyPositions.setXYZ(1, enemyAnchorB.x, enemyAnchorB.y, enemyAnchorB.z);
     enemyPositions.needsUpdate = true;
   }
 
@@ -452,18 +462,15 @@ export class Arena {
     }
   }
 
-  private updateHitbox(fighter: Fighter, directionX: -1 | 1) {
+  private updateHitbox(fighter: Fighter) {
     if (!fighter.hitbox) return;
     fighter.hitbox.visible =
       !fighter.isDown &&
       this.gameState === GameState.PLAYING &&
       this.matchResult === MatchResult.PLAYING &&
       fighter.attack.state === FighterState.ATTACK_ACTIVE;
-    fighter.hitbox.position.set(
-      fighter.mesh.position.x + directionX * HITBOX_OFFSET,
-      fighter.mesh.position.y,
-      fighter.mesh.position.z,
-    );
+    const anchor = fighter.view.getAttackAnchorWorldPosition();
+    fighter.hitbox.position.copy(anchor);
   }
 
   /**
@@ -572,21 +579,24 @@ export class Arena {
     this.aiStates = this.createInitialAIStates();
   }
 
-  private updateAIHitbox(fighter: Fighter, partner: Fighter) {
+  private updateAIHitbox(fighter: Fighter) {
     if (!fighter.hitbox) return;
     fighter.hitbox.visible = !fighter.isDown &&
       this.gameState === GameState.PLAYING &&
       this.matchResult === MatchResult.PLAYING &&
       fighter.attack.state === FighterState.ATTACK_ACTIVE;
-    const dx = fighter.mesh.position.x - partner.mesh.position.x;
-    const dz = fighter.mesh.position.z - partner.mesh.position.z;
-    const length = Math.hypot(dx, dz);
-    const fallback = fighter.slot === FighterSlot.LEFT ? -1 : 1;
-    fighter.hitbox.position.set(
-      fighter.mesh.position.x + (length > 0 ? dx / length : fallback) * HITBOX_OFFSET,
-      fighter.mesh.position.y,
-      fighter.mesh.position.z + (length > 0 ? dz / length : 0) * HITBOX_OFFSET,
-    );
+    const anchor = fighter.view.getAttackAnchorWorldPosition();
+    fighter.hitbox.position.copy(anchor);
+  }
+
+  private orientAttack(fighter: Fighter, x: number, z: number, deltaTime: number) {
+    if (
+      fighter.attack.state === FighterState.ATTACK_WINDUP ||
+      fighter.attack.state === FighterState.ATTACK_ACTIVE ||
+      fighter.attack.state === FighterState.ATTACK_RECOVERY
+    ) {
+      fighter.view.setAttackDirection(x, z, deltaTime);
+    }
   }
 
   private createInitialAIStates(): AIStateSnapshot[] {
@@ -619,6 +629,8 @@ export class Arena {
   }
 
   dispose() {
+    [this.fighterA, this.fighterB, this.enemyA, this.enemyB]
+      .forEach((fighter) => fighter.destroy());
     this.linkLine.geometry.dispose();
     (this.linkLine.material as THREE.Material).dispose();
     this.enemyLinkLine.geometry.dispose();

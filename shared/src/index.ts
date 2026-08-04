@@ -7,4 +7,6 @@ export * from './combat';
 export * from './health';
 export * from './playUi';
 export * from './rematch';
+export * from './networkConfig';
+export * from './character';
 export * from './aiLink';

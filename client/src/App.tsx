@@ -13,6 +13,14 @@ import { PlayHUD } from './game/ui/PlayHUD';
 // 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
 const CAM_HEIGHT = 10;
 const CAM_DEPTH  = 10;
+const DEBUG_COMBAT_COMMANDS_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_DEBUG_COMBAT_COMMANDS === 'true';
+const DEBUG_HUD_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_DEBUG_HUD !== 'false';
+const SPIKE_ROOM_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_SPIKE_ROOM === 'true';
+const LOCAL_FALLBACK_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_LOCAL_FALLBACK !== 'false';
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -24,9 +32,9 @@ export function App() {
     const gameScene = new GameScene({ canvas });
     const camera    = gameScene.getCamera();
     const input     = new InputManager();
-    const hud       = new DebugHUD();
+    const hud       = DEBUG_HUD_ENABLED ? new DebugHUD() : null;
     const playHud   = new PlayHUD();
-    const network   = new NetworkSpike();
+    const network   = SPIKE_ROOM_ENABLED ? new NetworkSpike() : null;
     let arena: Arena | null = null;
     let debugControls: DebugControlPanel | null = null;
     const combatNetwork = new CombatNetwork(
@@ -47,7 +55,7 @@ export function App() {
 
     // 카메라 부드러운 추적용 현재 목표 위치
     const camTarget = new THREE.Vector3(0, 0, 0);
-    void network.connect();
+    void network?.connect();
 
     void Arena.create(gameScene.getScene())
       .then((createdArena) => {
@@ -58,18 +66,21 @@ export function App() {
         arena = createdArena;
         const activeArena = createdArena;
         void combatNetwork.connect();
-        debugControls = new DebugControlPanel(activeArena, combatNetwork);
+        if (DEBUG_COMBAT_COMMANDS_ENABLED) {
+          debugControls = new DebugControlPanel(activeArena, combatNetwork);
+        }
         gameScene.start(
       // ── fixed update (1/60s) ──────────────
       (dt) => {
         const a = input.getPlayerAInput();
         const b = input.getPlayerBInput();
         const connectedSlot = combatNetwork.assignment?.slot;
-        activeArena.setServerCombatAuthority(!!connectedSlot);
-        const localA = !connectedSlot || connectedSlot === FighterSlot.LEFT ? a : { x: 0, z: 0 };
-        const localB = !connectedSlot || connectedSlot === FighterSlot.RIGHT ? b : { x: 0, z: 0 };
-        const requestedAttackA = (!connectedSlot || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
-        const requestedAttackB = (!connectedSlot || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
+        const localFallback = !connectedSlot && LOCAL_FALLBACK_ENABLED;
+        activeArena.setServerCombatAuthority(!localFallback);
+        const localA = localFallback || connectedSlot === FighterSlot.LEFT ? a : { x: 0, z: 0 };
+        const localB = localFallback || connectedSlot === FighterSlot.RIGHT ? b : { x: 0, z: 0 };
+        const requestedAttackA = (localFallback || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
+        const requestedAttackB = (localFallback || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
         if (connectedSlot && (requestedAttackA || requestedAttackB)) {
           combatNetwork.sendAttack({
             sequence: ++attackSequence,
@@ -78,8 +89,8 @@ export function App() {
               : activeArena.fighterB.id,
           });
         }
-        const attackA = !connectedSlot && requestedAttackA;
-        const attackB = !connectedSlot && requestedAttackB;
+        const attackA = localFallback && requestedAttackA;
+        const attackB = localFallback && requestedAttackB;
         activeArena.fixedUpdate(localA, localB, attackA, attackB, dt);
         const ownedFighterId = combatNetwork.assignment?.fighterId;
         const ownedPosition = ownedFighterId
@@ -93,8 +104,8 @@ export function App() {
         }
       },
       // ── render frame ──────────────────────
-      (alpha) => {
-        activeArena.render(alpha);
+      (alpha, deltaTime) => {
+        activeArena.render(alpha, deltaTime);
 
         // 팀 중심 추적 카메라 (두 플레이어 파이터 중점)
         const ax = activeArena.fighterA.mesh.position.x;
@@ -111,7 +122,7 @@ export function App() {
         camera.position.set(camTarget.x, CAM_HEIGHT, camTarget.z + CAM_DEPTH);
         camera.lookAt(camTarget.x, 0, camTarget.z);
 
-        hud.update(gameScene, activeArena, network, combatNetwork);
+        hud?.update(gameScene, activeArena, network, combatNetwork);
       }
         );
       })
@@ -123,11 +134,11 @@ export function App() {
       cancelled = true;
       gameScene.dispose();
       arena?.dispose();
-      hud.dispose();
+      hud?.dispose();
       playHud.destroy();
       debugControls?.dispose();
       input.dispose();
-      network.dispose();
+      network?.dispose();
       combatNetwork.dispose();
     };
   }, []);
