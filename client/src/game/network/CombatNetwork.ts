@@ -14,6 +14,7 @@ export class CombatNetwork {
   private room: Room | null = null;
   private disposed = false;
   private connecting = false;
+  private connectionGeneration = 0;
   public assignment: CombatAssignmentMessage | null = null;
   public roomId = '-';
   public sessionId = '-';
@@ -33,11 +34,12 @@ export class CombatNetwork {
   async connect() {
     if (this.disposed || this.room || this.connecting) return;
     this.connecting = true;
+    const generation = ++this.connectionGeneration;
     const endpoint = COMBAT_SERVER_URL;
     this.setStatus('CONNECTING');
     try {
       const room = await new Client(endpoint).joinOrCreate('combat_room');
-      if (this.disposed) {
+      if (this.disposed || generation !== this.connectionGeneration) {
         await room.leave();
         return;
       }
@@ -99,9 +101,24 @@ export class CombatNetwork {
     return true;
   }
 
+  async disconnect() {
+    this.connectionGeneration++;
+    this.connecting = false;
+    const room = this.room;
+    this.room = null;
+    this.assignment = null;
+    this.roomId = '-';
+    this.sessionId = '-';
+    this.onAssignmentChange?.(null);
+    room?.removeAllListeners();
+    if (room) await room.leave();
+    if (!this.disposed) this.setStatus('DISCONNECTED');
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.connectionGeneration++;
     this.room?.removeAllListeners();
     void this.room?.leave();
     this.room = null;

@@ -38,6 +38,18 @@ export function selectAttackClipName(
   return slot === FighterSlot.LEFT ? animations.attackLeft : animations.attackRight;
 }
 
+/**
+ * The linked fighters attack away from their partner: LEFT toward -X and RIGHT
+ * toward +X. Our humanoid exports place LeftHand on local +X and RightHand on
+ * local -X, so the outward attack anchor uses the opposite-named hand bone.
+ */
+export function selectOutwardAttackBoneName(
+  slot: FighterSlot,
+  bones: { leftHand?: string; rightHand?: string },
+): string | undefined {
+  return slot === FighterSlot.LEFT ? bones.rightHand : bones.leftHand;
+}
+
 export function isCharacterMoving(
   previous: Pick<Vec3, 'x' | 'z'>,
   current: Pick<Vec3, 'x' | 'z'>,

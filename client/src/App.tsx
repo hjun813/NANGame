@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GameScene } from './game/core/GameScene';
 import { Arena } from './game/entities/Arena';
@@ -9,6 +9,10 @@ import { NetworkSpike } from './game/network/NetworkSpike';
 import { CombatNetwork } from './game/network/CombatNetwork';
 import { FighterSlot } from '@shared/enums';
 import { PlayHUD } from './game/ui/PlayHUD';
+import { GameMenu } from './game/ui/GameMenu';
+import type { GameMenuScreen } from './game/ui/GameMenu';
+import type { CombatConnectionStatus } from './game/network/CombatNetwork';
+import { GameState } from '@shared/enums';
 
 // 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
 const CAM_HEIGHT = 10;
@@ -16,7 +20,7 @@ const CAM_DEPTH  = 10;
 const DEBUG_COMBAT_COMMANDS_ENABLED = import.meta.env.DEV
   && import.meta.env.VITE_ENABLE_DEBUG_COMBAT_COMMANDS === 'true';
 const DEBUG_HUD_ENABLED = import.meta.env.DEV
-  && import.meta.env.VITE_ENABLE_DEBUG_HUD !== 'false';
+  && import.meta.env.VITE_ENABLE_DEBUG_HUD === 'true';
 const SPIKE_ROOM_ENABLED = import.meta.env.DEV
   && import.meta.env.VITE_ENABLE_SPIKE_ROOM === 'true';
 const LOCAL_FALLBACK_ENABLED = import.meta.env.DEV
@@ -24,6 +28,22 @@ const LOCAL_FALLBACK_ENABLED = import.meta.env.DEV
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playHudRef = useRef<PlayHUD | null>(null);
+  const connectRef = useRef<(() => void) | null>(null);
+  const disconnectRef = useRef<(() => void) | null>(null);
+  const screenRef = useRef<GameMenuScreen>('HOME');
+  const [screen, setScreen] = useState<GameMenuScreen>('HOME');
+  const [connectionStatus, setConnectionStatus] = useState<CombatConnectionStatus>('DISCONNECTED');
+  const [assigned, setAssigned] = useState(false);
+
+  const changeScreen = (next: GameMenuScreen) => {
+    screenRef.current = next;
+    setScreen(next);
+  };
+
+  useEffect(() => {
+    playHudRef.current?.setVisible(screen === 'GAME');
+  }, [screen]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,6 +54,8 @@ export function App() {
     const input     = new InputManager();
     const hud       = DEBUG_HUD_ENABLED ? new DebugHUD() : null;
     const playHud   = new PlayHUD();
+    playHud.setVisible(false);
+    playHudRef.current = playHud;
     const network   = SPIKE_ROOM_ENABLED ? new NetworkSpike() : null;
     let arena: Arena | null = null;
     let debugControls: DebugControlPanel | null = null;
@@ -41,14 +63,26 @@ export function App() {
       (state) => {
         arena?.applyAuthoritativeState(state, combatNetwork.assignment?.fighterId);
         playHud.updateCombatState(state);
+        if (
+          screenRef.current === 'MATCHMAKING' &&
+          state.gameState !== GameState.WAITING
+        ) changeScreen('GAME');
       },
-      (status) => playHud.setConnectionState(status),
-      (assignment) => playHud.setAssignedSlot(assignment?.slot ?? null),
+      (status) => {
+        playHud.setConnectionState(status);
+        setConnectionStatus(status);
+      },
+      (assignment) => {
+        playHud.setAssignedSlot(assignment?.slot ?? null);
+        setAssigned(!!assignment);
+      },
     );
     playHud.setConnectionState(combatNetwork.status);
     playHud.setRematchRequestHandler(() => {
       combatNetwork.requestRematch();
     });
+    connectRef.current = () => void combatNetwork.connect();
+    disconnectRef.current = () => void combatNetwork.disconnect();
     let cancelled = false;
     let inputSequence = 0;
     let attackSequence = 0;
@@ -65,22 +99,22 @@ export function App() {
         }
         arena = createdArena;
         const activeArena = createdArena;
-        void combatNetwork.connect();
         if (DEBUG_COMBAT_COMMANDS_ENABLED) {
           debugControls = new DebugControlPanel(activeArena, combatNetwork);
         }
         gameScene.start(
       // ── fixed update (1/60s) ──────────────
       (dt) => {
-        const a = input.getPlayerAInput();
-        const b = input.getPlayerBInput();
+        const gameInputEnabled = screenRef.current === 'GAME';
+        const a = gameInputEnabled ? input.getPlayerAInput() : { x: 0, z: 0 };
+        const b = gameInputEnabled ? input.getPlayerBInput() : { x: 0, z: 0 };
         const connectedSlot = combatNetwork.assignment?.slot;
         const localFallback = !connectedSlot && LOCAL_FALLBACK_ENABLED;
         activeArena.setServerCombatAuthority(!localFallback);
         const localA = localFallback || connectedSlot === FighterSlot.LEFT ? a : { x: 0, z: 0 };
         const localB = localFallback || connectedSlot === FighterSlot.RIGHT ? b : { x: 0, z: 0 };
-        const requestedAttackA = (localFallback || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
-        const requestedAttackB = (localFallback || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
+        const requestedAttackA = gameInputEnabled && (localFallback || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
+        const requestedAttackB = gameInputEnabled && (localFallback || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
         if (connectedSlot && (requestedAttackA || requestedAttackB)) {
           combatNetwork.sendAttack({
             sequence: ++attackSequence,
@@ -136,6 +170,9 @@ export function App() {
       arena?.dispose();
       hud?.dispose();
       playHud.destroy();
+      playHudRef.current = null;
+      connectRef.current = null;
+      disconnectRef.current = null;
       debugControls?.dispose();
       input.dispose();
       network?.dispose();
@@ -143,10 +180,27 @@ export function App() {
     };
   }, []);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ display: 'block', width: '100vw', height: '100vh' }}
+  const findMatch = () => {
+    setAssigned(false);
+    changeScreen('MATCHMAKING');
+    connectRef.current?.();
+  };
+  const cancelMatchmaking = () => {
+    disconnectRef.current?.();
+    changeScreen('HOME');
+  };
+
+  return <>
+    <canvas ref={canvasRef} style={{ display: 'block', width: '100vw', height: '100vh' }} />
+    <GameMenu
+      screen={screen}
+      connectionStatus={connectionStatus}
+      assigned={assigned}
+      onFindMatch={findMatch}
+      onCancelMatchmaking={cancelMatchmaking}
+      onShowRules={() => changeScreen('RULES')}
+      onShowControls={() => changeScreen('CONTROLS')}
+      onBack={() => changeScreen('HOME')}
     />
-  );
+  </>;
 }

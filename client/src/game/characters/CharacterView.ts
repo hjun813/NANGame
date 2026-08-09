@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { FighterSlot, FighterState, Team } from '@shared/enums';
-import { getFallbackAttackAnchorOffset, isCharacterMoving } from '@shared/character';
+import {
+  getFallbackAttackAnchorOffset,
+  isCharacterMoving,
+  selectOutwardAttackBoneName,
+} from '@shared/character';
 import type { Vec3 } from '@shared/types';
 import { CharacterAnimationController } from './CharacterAnimationController';
 import { getCharacterAssetConfig } from './characterConfig';
@@ -141,11 +145,20 @@ export class CharacterView {
       if (object instanceof THREE.Mesh) {
         object.castShadow = true;
         object.receiveShadow = true;
+        // Some exported multi-skin GLBs do not retain every skeleton lookup
+        // needed by Three.js' lazy SkinnedMesh bounding-sphere calculation.
+        // Character counts are fixed and small, so render them without that
+        // per-mesh frustum test instead of letting the render loop fail.
+        if (object instanceof THREE.SkinnedMesh) {
+          object.frustumCulled = false;
+          object.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 100);
+        }
       }
     });
-    const attackBoneName = this.options.slot === FighterSlot.LEFT
-      ? this.config.bones.leftHand
-      : this.config.bones.rightHand;
+    const attackBoneName = selectOutwardAttackBoneName(
+      this.options.slot,
+      this.config.bones,
+    );
     this.attackBone = attackBoneName ? this.model.getObjectByName(attackBoneName) ?? null : null;
     this.linkBone = this.config.bones.linkAnchor
       ? this.model.getObjectByName(this.config.bones.linkAnchor) ?? null

@@ -41,6 +41,7 @@ export const GAME_CONFIG = {
 
   // AI 이동
   AI_MOVE_SPEED: 2.5,           // 최소 AI 접근 속도 (m/s)
+  AI_MIN_TARGET_DISTANCE: 0.8, // 캐릭터 반지름 합: 타깃 내부 침투 시 AI가 빠져나올 거리
   AI_RETREAT_SPEED: 3,          // 공격 후 후퇴 속도 (m/s)
   AI_RETREAT_DURATION: 0.35,    // 공격 후 후퇴 시간 (초, 최대 약 1.05m)
   AI_MIN_SEPARATION: 0.9,       // 두 AI 사이 최소 거리 (m)

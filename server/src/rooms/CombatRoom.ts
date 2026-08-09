@@ -10,7 +10,7 @@ import {
   evaluateTimeLimitResult,
   GAME_CONFIG,
   isBasicAttackHit,
-  isTargetInAIAttackArc,
+  isTargetInAIAttackHitbox,
   applyAILinkConstraint,
   createRematchReady,
   registerRematchRequest,
@@ -335,6 +335,11 @@ export class CombatRoom extends Room {
         (candidate) => candidate.id === moved.targetId,
       ) ?? null;
       const partner = this.aiStates.find((candidate) => candidate.id !== ai.id)!;
+      const targetIsHittable = !!target && isTargetInAIAttackHitbox(
+        moved.position,
+        partner.position,
+        target.position,
+      );
       if (
         moved.state === AIState.ATTACK_READY &&
         canStartAIAttack(
@@ -343,7 +348,7 @@ export class CombatRoom extends Room {
           target,
           this.gameState,
           attack.state,
-        ) && isTargetInAIAttackArc(moved.position, partner.position, target!.position) &&
+        ) && targetIsHittable &&
         attack.tryStart()
       ) {
         fighter.state = attack.state;
@@ -351,7 +356,7 @@ export class CombatRoom extends Room {
       }
       if (
         moved.state === AIState.ATTACK_READY && target &&
-        !isTargetInAIAttackArc(moved.position, partner.position, target.position)
+        !targetIsHittable
       ) {
         fighter.state = FighterState.NORMAL;
         return stepAIReposition(moved, partner.position, target.position, dt);
@@ -373,6 +378,16 @@ export class CombatRoom extends Room {
         {
           firstDown: fighterA?.state === FighterState.DOWN,
           secondDown: fighterB?.state === FighterState.DOWN,
+          // 둘이 정면에서 동시에 공격 각도를 잡을 때 링크 목표 거리 1.8m를
+          // 강제하면 타깃 내부로 되밀려 REPOSITION이 반복된다. 재배치 중에는
+          // 캐릭터 최소 분리 거리까지만 링크 수축을 허용한다.
+          minDistance: stepped.some(({ state }) =>
+            state === AIState.REPOSITION ||
+            state === AIState.WINDUP ||
+            state === AIState.ACTIVE ||
+            state === AIState.RECOVERY)
+            ? GAME_CONFIG.AI_MIN_SEPARATION
+            : undefined,
         },
       );
       this.aiStates = [
@@ -396,11 +411,11 @@ export class CombatRoom extends Room {
       const partner = this.aiStates.find((candidate) => candidate.id !== ai.id);
       if (!target || target.state === FighterState.DOWN || attack.state !== FighterState.ATTACK_ACTIVE) continue;
       if (
-        partner && isTargetInAIAttackArc(ai.position, partner.position, target.position) &&
-        isBasicAttackHit(ai.position, target.position, {
-          x: ai.position.x - partner.position.x,
-          z: ai.position.z - partner.position.z,
-        }) && attack.registerHit(target.id)
+        partner && isTargetInAIAttackHitbox(
+          ai.position,
+          partner.position,
+          target.position,
+        ) && attack.registerHit(target.id)
       ) {
         pendingDamage.push({ fighterId: target.id, damage: GAME_CONFIG.ATTACK_DAMAGE });
       }

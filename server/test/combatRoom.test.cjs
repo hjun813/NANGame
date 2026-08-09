@@ -160,3 +160,45 @@ test('same damage batch preserves DRAW and leaving returns the survivor to WAITI
   assert.equal(waiting.result, MatchResult.PLAYING);
   assert.ok(waiting.fighters.every(({ hp, state }) => hp === 100 && state === FighterState.NORMAL));
 });
+
+test('AI repositions into its real hitbox and damages stationary players', () => {
+  const harness = createHarness();
+  advanceToPlaying(harness);
+
+  for (let index = 0; index < 360; index += 1) {
+    harness.tick(1000 / 30);
+    const players = harness.snapshot().fighters.filter(({ id }) => id.startsWith('player-'));
+    if (players.some(({ hp }) => hp < 100)) break;
+  }
+
+  const players = harness.snapshot().fighters.filter(({ id }) => id.startsWith('player-'));
+  assert.ok(players.some(({ hp }) => hp < 100), JSON.stringify({
+    players,
+    aiStates: harness.snapshot().aiStates,
+  }));
+});
+
+test('AI overlapping a player moves itself out instead of remaining stuck', () => {
+  const harness = createHarness();
+  advanceToPlaying(harness);
+  const overlap = { x: -2, y: 0.9, z: 0 };
+  harness.room.positions['player-left'] = { ...overlap };
+  harness.room.positions['player-right'] = { x: 5, y: 0.9, z: 0 };
+  harness.room.positions['enemy-left'] = { ...overlap };
+  harness.room.aiStates[0] = {
+    ...harness.room.aiStates[0],
+    position: { ...overlap },
+    targetId: 'player-left',
+  };
+
+  for (let index = 0; index < 12; index += 1) harness.tick(1000 / 30);
+
+  const snapshot = harness.snapshot();
+  const enemy = snapshot.aiStates.find(({ id }) => id === 'enemy-left');
+  const player = snapshot.fighters.find(({ id }) => id === 'player-left');
+  assert.ok(Math.hypot(
+    enemy.position.x - player.position.x,
+    enemy.position.z - player.position.z,
+  ) > 0.2);
+  assert.notEqual(enemy.state, 'IDLE', JSON.stringify(enemy));
+});

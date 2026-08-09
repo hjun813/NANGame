@@ -29,17 +29,18 @@ export class PlayHUD {
     this.root.id = 'linked-fighters-play-hud';
     this.root.innerHTML = `<style>
       #linked-fighters-play-hud{position:fixed;inset:0;z-index:900;pointer-events:none;color:#fff;font-family:Inter,system-ui,sans-serif;text-shadow:0 2px 4px #000}
-      .lf-score{position:absolute;top:16px;left:50%;transform:translateX(-50%);width:min(920px,94vw);display:grid;grid-template-columns:1fr auto 1fr;gap:22px;align-items:start}
-      .lf-team{padding:12px 14px;background:#07111ddd;border:1px solid #ffffff26;border-radius:12px;box-shadow:0 8px 24px #0008}.lf-team.enemy{text-align:right}.lf-team h2{font-size:12px;letter-spacing:2px;margin:0 0 8px;color:#9bdcff}.lf-team.enemy h2{color:#ffaaa7}
+      #linked-fighters-play-hud:after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 100px #0009;pointer-events:none}
+      .lf-score{position:absolute;z-index:1;top:18px;left:50%;transform:translateX(-50%);width:min(1040px,94vw);display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:start}
+      .lf-team{padding:12px 18px 14px;background:linear-gradient(110deg,#081523eb,#0a1019d9);border-top:2px solid #55cfff;border-bottom:1px solid #ffffff20;clip-path:polygon(0 0,96% 0,100% 100%,3% 100%);box-shadow:0 8px 24px #0008}.lf-team.enemy{text-align:right;background:linear-gradient(250deg,#24100feb,#120c10d9);border-top-color:#ff654f;clip-path:polygon(4% 0,100% 0,97% 100%,0 100%)}.lf-team h2{font-size:10px;letter-spacing:3px;margin:0 0 9px;color:#7edcff}.lf-team.enemy h2{color:#ff8c7a}
       .lf-fighter{margin:7px 0}.lf-name{display:flex;justify-content:space-between;font-size:12px;font-weight:700}.enemy .lf-name{flex-direction:row-reverse}.lf-badge{color:#ffcc4d;min-width:42px}.lf-bar{height:10px;background:#ffffff1a;border-radius:10px;overflow:hidden;margin-top:3px}.lf-fill{height:100%;width:100%;background:linear-gradient(90deg,#29d17d,#8eee58);transition:width .12s linear}.enemy .lf-fill{background:linear-gradient(90deg,#ffb347,#f04f54)}.lf-fighter.down{opacity:.62}.lf-fighter.down .lf-fill{background:#68707a}.lf-fighter.down .lf-name{text-decoration:line-through}
-      .lf-timer{font:800 28px/1 ui-monospace,monospace;padding:12px 16px;border-radius:10px;background:#05090ee6;border:1px solid #ffffff38;letter-spacing:2px}
-      .lf-center{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:clamp(30px,7vw,76px);font-weight:900;text-align:center;white-space:nowrap}.lf-center.waiting{font-size:clamp(20px,3vw,34px);padding:18px 24px;background:#07111ddd;border-radius:14px}
+      .lf-timer{position:relative;min-width:112px;text-align:center;font:900 30px/1 ui-monospace,monospace;padding:19px 14px 12px;background:linear-gradient(#111923f2,#05080df2);border:1px solid #ffffff42;clip-path:polygon(12% 0,88% 0,100% 25%,100% 100%,0 100%,0 25%);letter-spacing:2px}.lf-timer:before{content:"MATCH";position:absolute;top:5px;left:0;right:0;color:#94a3b8;font:800 7px/1 Inter,sans-serif;letter-spacing:3px}
+      .lf-center{position:absolute;z-index:2;left:50%;top:43%;transform:translate(-50%,-50%);font-family:Impact,'Arial Black',sans-serif;font-size:clamp(42px,9vw,104px);font-weight:900;font-style:italic;letter-spacing:3px;text-align:center;white-space:nowrap;color:#fff;text-shadow:0 5px 0 #111,0 0 38px #ff543c99}.lf-center.waiting{font-family:Inter,system-ui,sans-serif;font-style:normal;letter-spacing:0;font-size:clamp(18px,2.6vw,30px);padding:17px 28px;background:#07111de8;border-top:2px solid #ff5339}
       .lf-result{position:absolute;inset:0;display:none;place-content:center;text-align:center;background:#03070ab8}.lf-result.show{display:grid}.lf-result h1{font-size:clamp(48px,9vw,96px);margin:0}.lf-result p{font-size:18px;margin:12px 0 0}.lf-result small{margin-top:20px;color:#b9c1c9}
       .lf-rematch{pointer-events:auto;justify-self:center;margin-top:20px;padding:11px 22px;border:1px solid #9bdcff;border-radius:8px;background:#1676a8;color:white;font-weight:800;cursor:pointer}.lf-rematch:disabled{cursor:not-allowed;opacity:.45}.lf-rematch-message{margin-top:12px;color:#d7e3ea;font-size:14px}
-      .lf-guide{position:absolute;left:18px;bottom:18px;padding:12px 16px;background:#07111ddd;border:1px solid #ffffff26;border-radius:10px;font-size:13px;line-height:1.7}.lf-guide strong{color:#9bdcff}.lf-connection{position:absolute;right:18px;bottom:18px;padding:8px 12px;border-radius:20px;background:#07111ddd;font-size:12px;border:1px solid #ffffff26}.lf-connection.connected{color:#86efac}.lf-connection.error{color:#fca5a5}
+      .lf-guide{position:absolute;z-index:1;left:18px;bottom:18px;padding:10px 15px;background:linear-gradient(90deg,#07111de8,transparent);border-left:3px solid #55cfff;font-size:12px;line-height:1.7}.lf-guide strong{color:#fff;letter-spacing:.4px}.lf-connection{position:absolute;z-index:1;right:18px;bottom:18px;padding:8px 12px;border-radius:20px;background:#07111ddd;font-size:12px;border:1px solid #ffffff26}.lf-connection.connected{display:none}.lf-connection.error{color:#fca5a5}
       @media(max-width:650px){.lf-score{grid-template-columns:1fr 1fr;gap:8px}.lf-timer{position:absolute;left:50%;top:0;transform:translateX(-50%);font-size:18px}.lf-team{margin-top:46px;padding:9px}.lf-guide{font-size:11px;bottom:12px;left:12px}.lf-connection{right:12px;bottom:12px}}
     </style>
-    <div class="lf-score"><section class="lf-team"><h2>PLAYER TEAM</h2>${this.fighterMarkup('player-left','LEFT')}${this.fighterMarkup('player-right','RIGHT')}</section><div class="lf-timer">03:00</div><section class="lf-team enemy"><h2>ENEMY TEAM</h2>${this.fighterMarkup('enemy-left','LEFT')}${this.fighterMarkup('enemy-right','RIGHT')}</section></div>
+    <div class="lf-score"><section class="lf-team"><h2>LINKED FIGHTERS · ALLY</h2>${this.fighterMarkup('player-left','FIGHTER 1')}${this.fighterMarkup('player-right','FIGHTER 2')}</section><div class="lf-timer">03:00</div><section class="lf-team enemy"><h2>ENEMY DUO</h2>${this.fighterMarkup('enemy-left','ENEMY 1')}${this.fighterMarkup('enemy-right','ENEMY 2')}</section></div>
     <div class="lf-center waiting">경기 상태 확인 중...</div>
     <div class="lf-result"><h1></h1><p></p><button class="lf-rematch" type="button">재경기 요청</button><div class="lf-rematch-message"></div></div>
     <div class="lf-guide"></div><div class="lf-connection">서버 연결 중...</div>`;
@@ -94,6 +95,10 @@ export class PlayHUD {
 
   setRematchRequestHandler(handler: (() => void) | null): void {
     this.rematchHandler = handler;
+  }
+
+  setVisible(visible: boolean): void {
+    this.root.style.display = visible ? 'block' : 'none';
   }
 
   destroy(): void {

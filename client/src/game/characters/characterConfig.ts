@@ -26,6 +26,18 @@ export interface CharacterAssetConfig {
 
 const assetTestEnabled = import.meta.env.VITE_ENABLE_CHARACTER_ASSET_TEST === 'true';
 const assetTestFighter = import.meta.env.VITE_CHARACTER_ASSET_TEST_FIGHTER || 'player-left';
+const assetTestModelUrl = import.meta.env.VITE_CHARACTER_ASSET_TEST_MODEL_URL ||
+  '/assets/characters/FighterExport1.glb';
+const assetModelUrls: Readonly<Record<string, string | undefined>> = {
+  'player-left': import.meta.env.VITE_CHARACTER_MODEL_PLAYER_LEFT_URL ||
+    '/assets/characters/FighterExport1.glb',
+  'player-right': import.meta.env.VITE_CHARACTER_MODEL_PLAYER_RIGHT_URL ||
+    '/assets/characters/FighterExport2.glb',
+  'enemy-left': import.meta.env.VITE_CHARACTER_MODEL_ENEMY_LEFT_URL ||
+    '/assets/characters/enemy1.glb',
+  'enemy-right': import.meta.env.VITE_CHARACTER_MODEL_ENEMY_RIGHT_URL ||
+    '/assets/characters/enemy2.glb',
+};
 
 const baseConfig: CharacterAssetConfig = {
   scale: 1,
@@ -50,11 +62,11 @@ const baseConfig: CharacterAssetConfig = {
 };
 
 export function getCharacterAssetConfig(fighterId: string): CharacterAssetConfig {
+  const configuredModelUrl = assetModelUrls[fighterId] ||
+    (fighterId === assetTestFighter ? assetTestModelUrl : undefined);
   return {
     ...baseConfig,
-    modelUrl: assetTestEnabled && fighterId === assetTestFighter
-      ? '/assets/characters/fighter-test.glb'
-      : undefined,
+    modelUrl: assetTestEnabled ? configuredModelUrl : undefined,
     positionOffset: { ...baseConfig.positionOffset },
     animations: { ...baseConfig.animations },
     bones: { ...baseConfig.bones },

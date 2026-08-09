@@ -7,6 +7,7 @@ const {
   createRetreatDirection,
   getAIAttackArm,
   isTargetInAIAttackArc,
+  isTargetInAIAttackHitbox,
   selectNearestLivingTarget,
   separateAIStates,
   stepAIRetreat,
@@ -29,10 +30,34 @@ test('회전된 링크에서도 바깥쪽 공격 영역을 계산한다', () => 
   assert.equal(isTargetInAIAttackArc(position(0, -0.9), position(0, 0.9), position(0, -1.5)), true);
 });
 
+test('AI 공격 시작 판정은 ACTIVE 적중과 동일한 오프셋 히트박스를 사용한다', () => {
+  const attacker = position(-0.9);
+  const partner = position(0.9);
+  assert.equal(isTargetInAIAttackHitbox(attacker, partner, position(-1.9)), true);
+  // 원형 거리상 사거리 안이지만 바깥 방향 히트박스에서는 벗어난 위치다.
+  assert.equal(isTargetInAIAttackHitbox(attacker, partner, position(-0.9, 1)), false);
+});
+
 test('공격 불가능한 위치에서는 링크 반경을 따라 REPOSITION한다', () => {
   const moved = stepAIReposition(ai('enemy-left', -0.9), position(0.9), position(0), 1 / 30);
   assert.equal(moved.state, AIState.REPOSITION);
   assert.ok(Number.isFinite(moved.position.x) && Number.isFinite(moved.position.z));
+});
+
+test('가까운 타깃 재배치 목표는 타깃 내부가 아닌 공격 가능 간격에 생성된다', () => {
+  const partner = position(0.9, -0.8);
+  const target = position(-0.9, 0);
+  let moved = ai('enemy-left', -0.9, -0.8);
+  for (let tick = 0; tick < 30; tick++) {
+    moved = stepAIReposition(moved, partner, target, 1 / 30);
+  }
+  const targetDistance = Math.hypot(
+    moved.position.x - target.x,
+    moved.position.z - target.z,
+  );
+  assert.ok(targetDistance >= 0.8 - 1e-9);
+  assert.ok(targetDistance <= 1.2 + 1e-9);
+  assert.equal(isTargetInAIAttackHitbox(moved.position, partner, target), true);
 });
 const { AIState, FighterState, GameState } = require('../dist/enums.js');
 
@@ -95,6 +120,27 @@ test('공격 사거리 안이면 ATTACK_READY로 멈춘다', () => {
   const result = stepAI(initial, [player('player-left', 1)], playingOptions);
   assert.equal(result.state, AIState.ATTACK_READY);
   assert.deepEqual(result.position, initial.position);
+});
+
+test('플레이어와 겹친 AI는 공격 대기 대신 스스로 빠져나온다', () => {
+  const target = player('player-left', 0);
+  let current = ai('enemy-left', 0);
+  for (let tick = 0; tick < 21; tick++) {
+    current = stepAI(current, [target], playingOptions);
+    assert.ok(Number.isFinite(current.position.x));
+    assert.ok(Number.isFinite(current.position.z));
+  }
+  assert.equal(current.state, AIState.ATTACK_READY);
+  assert.ok(Math.hypot(
+    current.position.x - target.position.x,
+    current.position.z - target.position.z,
+  ) >= 0.8 - 1e-9);
+});
+
+test('타깃 내부에 들어간 AI는 타깃 반대 방향으로 REPOSITION한다', () => {
+  const result = stepAI(ai('enemy-right', 0.2), [player('player-left', 0)], playingOptions);
+  assert.equal(result.state, AIState.REPOSITION);
+  assert.ok(result.position.x > 0.2);
 });
 
 test('사거리 경계의 부동소수점 오차에서 APPROACH에 고착되지 않는다', () => {

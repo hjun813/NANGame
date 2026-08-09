@@ -1,5 +1,6 @@
 import { GAME_CONFIG } from './constants';
 import { AIState, FighterState, GameState } from './enums';
+import { isBasicAttackHit } from './combat';
 import type { Vec3 } from './types';
 
 const DISTANCE_EPSILON = 1e-6;
@@ -28,6 +29,7 @@ export interface AIStepOptions {
   deltaTime: number;
   moveSpeed?: number;
   attackDistance?: number;
+  minimumTargetDistance?: number;
   arenaLimit?: number;
 }
 
@@ -106,6 +108,20 @@ export function isTargetInAIAttackArc(
     (outwardLength * targetLength) >= minimumDot;
 }
 
+/** 공격 시작과 ACTIVE 적중 판정이 동일한 서버 히트박스를 사용하도록 묶는다. */
+export function isTargetInAIAttackHitbox(
+  aiPosition: Vec3,
+  partnerPosition: Vec3,
+  targetPosition: Vec3,
+): boolean {
+  const attackDirection = {
+    x: aiPosition.x - partnerPosition.x,
+    z: aiPosition.z - partnerPosition.z,
+  };
+  return isTargetInAIAttackArc(aiPosition, partnerPosition, targetPosition) &&
+    isBasicAttackHit(aiPosition, targetPosition, attackDirection);
+}
+
 /** 공격 불가능한 반대편에서는 링크 반경 위의 공격 가능한 위치로 서서히 재배치한다. */
 export function stepAIReposition(
   ai: AIStateSnapshot,
@@ -120,22 +136,74 @@ export function stepAIReposition(
   const fallback = ai.id === 'enemy-left' ? -1 : 1;
   const nx = radialLength > DISTANCE_EPSILON ? radialX / radialLength : fallback;
   const nz = radialLength > DISTANCE_EPSILON ? radialZ / radialLength : 0;
+  const desiredAttackDistance = (
+    GAME_CONFIG.AI_MIN_TARGET_DISTANCE + GAME_CONFIG.ATTACK_RANGE
+  ) / 2;
+  // 타깃과 파트너가 가까울 때 고정 링크 거리(1.8m)를 그대로 쓰면 목표점이
+  // 타깃 내부에 생긴다. 공격 간격과 AI 간 최소 간격을 모두 만족하는 링크
+  // 반경으로 줄여서 REPOSITION <-> 겹침 해소 왕복을 방지한다.
+  const repositionLinkDistance = Math.max(
+    GAME_CONFIG.AI_MIN_SEPARATION,
+    Math.min(
+      GAME_CONFIG.AI_LINK_TARGET_DISTANCE,
+      radialLength - desiredAttackDistance,
+    ),
+  );
   const goal = {
-    x: partnerPosition.x + nx * GAME_CONFIG.AI_LINK_TARGET_DISTANCE,
+    x: partnerPosition.x + nx * repositionLinkDistance,
     y: ai.position.y,
-    z: partnerPosition.z + nz * GAME_CONFIG.AI_LINK_TARGET_DISTANCE,
+    z: partnerPosition.z + nz * repositionLinkDistance,
   };
   const dx = goal.x - ai.position.x;
   const dz = goal.z - ai.position.z;
   const length = Math.hypot(dx, dz);
   const step = Math.min(length, moveSpeed * Math.max(0, deltaTime));
+  let moveX = length > 0 ? dx / length : 0;
+  let moveZ = length > 0 ? dz / length : 0;
+  const currentTargetX = ai.position.x - targetPosition.x;
+  const currentTargetZ = ai.position.z - targetPosition.z;
+  const currentTargetDistance = Math.hypot(currentTargetX, currentTargetZ);
+  if (currentTargetDistance <= GAME_CONFIG.AI_MIN_TARGET_DISTANCE + DISTANCE_EPSILON) {
+    const radialX = currentTargetDistance > DISTANCE_EPSILON
+      ? currentTargetX / currentTargetDistance
+      : fallback;
+    const radialZ = currentTargetDistance > DISTANCE_EPSILON
+      ? currentTargetZ / currentTargetDistance
+      : 0;
+    const inwardAmount = moveX * radialX + moveZ * radialZ;
+    if (inwardAmount < 0) {
+      const tangentX = moveX - radialX * inwardAmount;
+      const tangentZ = moveZ - radialZ * inwardAmount;
+      const tangentLength = Math.hypot(tangentX, tangentZ);
+      if (tangentLength > DISTANCE_EPSILON) {
+        moveX = tangentX / tangentLength;
+        moveZ = tangentZ / tangentLength;
+      }
+    }
+  }
+  let nextX = ai.position.x + moveX * step;
+  let nextZ = ai.position.z + moveZ * step;
+  const targetDx = nextX - targetPosition.x;
+  const targetDz = nextZ - targetPosition.z;
+  const targetDistance = Math.hypot(targetDx, targetDz);
+  if (targetDistance < GAME_CONFIG.AI_MIN_TARGET_DISTANCE) {
+    const fallbackX = ai.id === 'enemy-left' ? -1 : 1;
+    const awayX = targetDistance > DISTANCE_EPSILON
+      ? targetDx / targetDistance
+      : fallbackX;
+    const awayZ = targetDistance > DISTANCE_EPSILON
+      ? targetDz / targetDistance
+      : 0;
+    nextX = targetPosition.x + awayX * GAME_CONFIG.AI_MIN_TARGET_DISTANCE;
+    nextZ = targetPosition.z + awayZ * GAME_CONFIG.AI_MIN_TARGET_DISTANCE;
+  }
   return {
     ...ai,
     state: AIState.REPOSITION,
     position: clampToArena({
-      x: ai.position.x + (length > 0 ? dx / length * step : 0),
+      x: nextX,
       y: ai.position.y,
-      z: ai.position.z + (length > 0 ? dz / length * step : 0),
+      z: nextZ,
     }, GAME_CONFIG.ARENA_POSITION_LIMIT),
   };
 }
@@ -200,6 +268,36 @@ export function stepAI(
   const dx = target.position.x - ai.position.x;
   const dz = target.position.z - ai.position.z;
   const distance = Math.hypot(dx, dz);
+  const safeDeltaTime = Number.isFinite(options.deltaTime)
+    ? Math.max(0, options.deltaTime)
+    : 0;
+  const moveSpeed = options.moveSpeed ?? GAME_CONFIG.AI_MOVE_SPEED;
+  const arenaLimit = options.arenaLimit ?? GAME_CONFIG.ARENA_POSITION_LIMIT;
+  const minimumTargetDistance = options.minimumTargetDistance ??
+    GAME_CONFIG.AI_MIN_TARGET_DISTANCE;
+
+  // 플레이어와 겹치면 플레이어를 밀지 않고 AI 자신이 빠져나온다.
+  // 정확히 같은 좌표에서는 AI ID로 결정적인 X축 방향을 선택한다.
+  if (distance < minimumTargetDistance - DISTANCE_EPSILON) {
+    const fallbackX = ai.id === 'enemy-left' ? -1 : 1;
+    const awayX = distance > DISTANCE_EPSILON ? -dx / distance : fallbackX;
+    const awayZ = distance > DISTANCE_EPSILON ? -dz / distance : 0;
+    const moveDistance = Math.min(
+      moveSpeed * safeDeltaTime,
+      minimumTargetDistance - distance,
+    );
+    return {
+      ...ai,
+      state: AIState.REPOSITION,
+      targetId: target.id,
+      position: clampToArena({
+        x: ai.position.x + awayX * moveDistance,
+        y: ai.position.y,
+        z: ai.position.z + awayZ * moveDistance,
+      }, arenaLimit),
+    };
+  }
+
   if (distance <= attackDistance + DISTANCE_EPSILON) {
     return {
       ...ai,
@@ -209,17 +307,13 @@ export function stepAI(
     };
   }
 
-  const safeDeltaTime = Number.isFinite(options.deltaTime)
-    ? Math.max(0, options.deltaTime)
-    : 0;
-  const moveSpeed = options.moveSpeed ?? GAME_CONFIG.AI_MOVE_SPEED;
   const moveDistance = Math.min(moveSpeed * safeDeltaTime, distance - attackDistance);
   const scale = distance > 0 ? moveDistance / distance : 0;
   const nextPosition = clampToArena({
     x: ai.position.x + dx * scale,
     y: ai.position.y,
     z: ai.position.z + dz * scale,
-  }, options.arenaLimit ?? GAME_CONFIG.ARENA_POSITION_LIMIT);
+  }, arenaLimit);
 
   return {
     ...ai,

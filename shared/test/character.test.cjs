@@ -10,6 +10,7 @@ const {
   isCharacterMoving,
   resolveCharacterAnimationState,
   selectAttackClipName,
+  selectOutwardAttackBoneName,
   shouldRestartAttackAnimation,
 } = require('../dist');
 
@@ -47,6 +48,13 @@ test('attack animation restarts only for a newer attack id', () => {
 test('fallback attack anchors preserve left and right sides', () => {
   assert.deepEqual(getFallbackAttackAnchorOffset(FighterSlot.LEFT, 0.8), { x: -0.8, y: 0, z: 0 });
   assert.deepEqual(getFallbackAttackAnchorOffset(FighterSlot.RIGHT, 0.8), { x: 0.8, y: 0, z: 0 });
+});
+
+test('outward attack anchor uses the bone located on the slot attack side', () => {
+  const bones = { leftHand: 'LeftHand', rightHand: 'RightHand' };
+  assert.equal(selectOutwardAttackBoneName(FighterSlot.LEFT, bones), 'RightHand');
+  assert.equal(selectOutwardAttackBoneName(FighterSlot.RIGHT, bones), 'LeftHand');
+  assert.equal(selectOutwardAttackBoneName(FighterSlot.LEFT, { leftHand: 'LeftHand' }), undefined);
 });
 
 test('missing URLs and failed model loads select the fallback', () => {
