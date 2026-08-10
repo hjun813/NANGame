@@ -1,21 +1,32 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# shared 먼저 복사 (캐시 활용)
 COPY shared/package.json ./shared/
 RUN cd shared && npm install
+COPY shared/tsconfig.json ./shared/
+COPY shared/src ./shared/src
+RUN cd shared && npm run build
 
-COPY shared/ ./shared/
+COPY server/package.json server/package-lock.json ./server/
+RUN cd server && npm ci
+COPY server/tsconfig.json ./server/
+COPY server/src ./server/src
+RUN cd server && npm run build
 
-# server 의존성 설치
-COPY server/package.json ./server/
-RUN cd server && npm install
+FROM node:20-alpine AS runtime
 
-COPY server/ ./server/
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY shared/package.json ./shared/
+COPY --from=builder /app/shared/dist ./shared/dist
+COPY server/package.json server/package-lock.json ./server/
+RUN cd server && npm ci --omit=dev && npm cache clean --force
+COPY --from=builder /app/server/dist ./server/dist
 
 WORKDIR /app/server
-
+USER node
 EXPOSE 2567
 
-CMD ["npm", "run", "dev"]
+CMD ["node", "dist/index.js"]

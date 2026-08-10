@@ -1,0 +1,206 @@
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { GameScene } from './game/core/GameScene';
+import { Arena } from './game/entities/Arena';
+import { InputManager } from './game/input/InputManager';
+import { DebugHUD } from './game/debug/DebugHUD';
+import { DebugControlPanel } from './game/debug/DebugControlPanel';
+import { NetworkSpike } from './game/network/NetworkSpike';
+import { CombatNetwork } from './game/network/CombatNetwork';
+import { FighterSlot } from '@shared/enums';
+import { PlayHUD } from './game/ui/PlayHUD';
+import { GameMenu } from './game/ui/GameMenu';
+import type { GameMenuScreen } from './game/ui/GameMenu';
+import type { CombatConnectionStatus } from './game/network/CombatNetwork';
+import { GameState } from '@shared/enums';
+
+// 카메라 오프셋: 팀 중심에서 얼마나 위/뒤에 있을지
+const CAM_HEIGHT = 10;
+const CAM_DEPTH  = 10;
+const DEBUG_COMBAT_COMMANDS_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_DEBUG_COMBAT_COMMANDS === 'true';
+const DEBUG_HUD_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_DEBUG_HUD === 'true';
+const SPIKE_ROOM_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_SPIKE_ROOM === 'true';
+const LOCAL_FALLBACK_ENABLED = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_LOCAL_FALLBACK !== 'false';
+
+export function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playHudRef = useRef<PlayHUD | null>(null);
+  const connectRef = useRef<(() => void) | null>(null);
+  const disconnectRef = useRef<(() => void) | null>(null);
+  const screenRef = useRef<GameMenuScreen>('HOME');
+  const [screen, setScreen] = useState<GameMenuScreen>('HOME');
+  const [connectionStatus, setConnectionStatus] = useState<CombatConnectionStatus>('DISCONNECTED');
+  const [assigned, setAssigned] = useState(false);
+
+  const changeScreen = (next: GameMenuScreen) => {
+    screenRef.current = next;
+    setScreen(next);
+  };
+
+  useEffect(() => {
+    playHudRef.current?.setVisible(screen === 'GAME');
+  }, [screen]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const gameScene = new GameScene({ canvas });
+    const camera    = gameScene.getCamera();
+    const input     = new InputManager();
+    const hud       = DEBUG_HUD_ENABLED ? new DebugHUD() : null;
+    const playHud   = new PlayHUD();
+    playHud.setVisible(false);
+    playHudRef.current = playHud;
+    const network   = SPIKE_ROOM_ENABLED ? new NetworkSpike() : null;
+    let arena: Arena | null = null;
+    let debugControls: DebugControlPanel | null = null;
+    const combatNetwork = new CombatNetwork(
+      (state) => {
+        arena?.applyAuthoritativeState(state, combatNetwork.assignment?.fighterId);
+        playHud.updateCombatState(state);
+        if (
+          screenRef.current === 'MATCHMAKING' &&
+          state.gameState !== GameState.WAITING
+        ) changeScreen('GAME');
+      },
+      (status) => {
+        playHud.setConnectionState(status);
+        setConnectionStatus(status);
+      },
+      (assignment) => {
+        playHud.setAssignedSlot(assignment?.slot ?? null);
+        setAssigned(!!assignment);
+      },
+    );
+    playHud.setConnectionState(combatNetwork.status);
+    playHud.setRematchRequestHandler(() => {
+      combatNetwork.requestRematch();
+    });
+    connectRef.current = () => void combatNetwork.connect();
+    disconnectRef.current = () => void combatNetwork.disconnect();
+    let cancelled = false;
+    let inputSequence = 0;
+    let attackSequence = 0;
+
+    // 카메라 부드러운 추적용 현재 목표 위치
+    const camTarget = new THREE.Vector3(0, 0, 0);
+    void network?.connect();
+
+    void Arena.create(gameScene.getScene())
+      .then((createdArena) => {
+        if (cancelled) {
+          createdArena.dispose();
+          return;
+        }
+        arena = createdArena;
+        const activeArena = createdArena;
+        if (DEBUG_COMBAT_COMMANDS_ENABLED) {
+          debugControls = new DebugControlPanel(activeArena, combatNetwork);
+        }
+        gameScene.start(
+      // ── fixed update (1/60s) ──────────────
+      (dt) => {
+        const gameInputEnabled = screenRef.current === 'GAME';
+        const a = gameInputEnabled ? input.getPlayerAInput() : { x: 0, z: 0 };
+        const b = gameInputEnabled ? input.getPlayerBInput() : { x: 0, z: 0 };
+        const connectedSlot = combatNetwork.assignment?.slot;
+        const localFallback = !connectedSlot && LOCAL_FALLBACK_ENABLED;
+        activeArena.setServerCombatAuthority(!localFallback);
+        const localA = localFallback || connectedSlot === FighterSlot.LEFT ? a : { x: 0, z: 0 };
+        const localB = localFallback || connectedSlot === FighterSlot.RIGHT ? b : { x: 0, z: 0 };
+        const requestedAttackA = gameInputEnabled && (localFallback || connectedSlot === FighterSlot.LEFT) && input.consumePress('KeyF');
+        const requestedAttackB = gameInputEnabled && (localFallback || connectedSlot === FighterSlot.RIGHT) && input.consumePress('KeyL');
+        if (connectedSlot && (requestedAttackA || requestedAttackB)) {
+          combatNetwork.sendAttack({
+            sequence: ++attackSequence,
+            attackerId: connectedSlot === FighterSlot.LEFT
+              ? activeArena.fighterA.id
+              : activeArena.fighterB.id,
+          });
+        }
+        const attackA = localFallback && requestedAttackA;
+        const attackB = localFallback && requestedAttackB;
+        activeArena.fixedUpdate(localA, localB, attackA, attackB, dt);
+        const ownedFighterId = combatNetwork.assignment?.fighterId;
+        const ownedPosition = ownedFighterId
+          ? activeArena.getFighterPosition(ownedFighterId)
+          : null;
+        if (ownedPosition) {
+          combatNetwork.sendPosition({
+            sequence: ++inputSequence,
+            position: ownedPosition,
+          });
+        }
+      },
+      // ── render frame ──────────────────────
+      (alpha, deltaTime) => {
+        activeArena.render(alpha, deltaTime);
+
+        // 팀 중심 추적 카메라 (두 플레이어 파이터 중점)
+        const ax = activeArena.fighterA.mesh.position.x;
+        const az = activeArena.fighterA.mesh.position.z;
+        const bx = activeArena.fighterB.mesh.position.x;
+        const bz = activeArena.fighterB.mesh.position.z;
+        const midX = (ax + bx) / 2;
+        const midZ = (az + bz) / 2;
+
+        // 부드러운 lerp 추적 (alpha 기반)
+        camTarget.x = THREE.MathUtils.lerp(camTarget.x, midX, 0.08);
+        camTarget.z = THREE.MathUtils.lerp(camTarget.z, midZ, 0.08);
+
+        camera.position.set(camTarget.x, CAM_HEIGHT, camTarget.z + CAM_DEPTH);
+        camera.lookAt(camTarget.x, 0, camTarget.z);
+
+        hud?.update(gameScene, activeArena, network, combatNetwork);
+      }
+        );
+      })
+      .catch((error: unknown) => {
+        console.error('Rapier 초기화 실패', error);
+      });
+
+    return () => {
+      cancelled = true;
+      gameScene.dispose();
+      arena?.dispose();
+      hud?.dispose();
+      playHud.destroy();
+      playHudRef.current = null;
+      connectRef.current = null;
+      disconnectRef.current = null;
+      debugControls?.dispose();
+      input.dispose();
+      network?.dispose();
+      combatNetwork.dispose();
+    };
+  }, []);
+
+  const findMatch = () => {
+    setAssigned(false);
+    changeScreen('MATCHMAKING');
+    connectRef.current?.();
+  };
+  const cancelMatchmaking = () => {
+    disconnectRef.current?.();
+    changeScreen('HOME');
+  };
+
+  return <>
+    <canvas ref={canvasRef} style={{ display: 'block', width: '100vw', height: '100vh' }} />
+    <GameMenu
+      screen={screen}
+      connectionStatus={connectionStatus}
+      assigned={assigned}
+      onFindMatch={findMatch}
+      onCancelMatchmaking={cancelMatchmaking}
+      onShowRules={() => changeScreen('RULES')}
+      onShowControls={() => changeScreen('CONTROLS')}
+      onBack={() => changeScreen('HOME')}
+    />
+  </>;
+}

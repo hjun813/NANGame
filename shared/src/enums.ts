@@ -6,39 +6,75 @@ export enum GameState {
   COUNTDOWN = 'COUNTDOWN',   // 카운트다운
   PLAYING = 'PLAYING',       // 경기 진행 중
   FINISHED = 'FINISHED',     // 경기 종료
+  DISCONNECTED = 'DISCONNECTED', // 필수 플레이어 이탈로 종료
 }
 
 // ─────────────────────────────────────────
 // 파이터(캐릭터) 상태
 // ─────────────────────────────────────────
 export enum FighterState {
-  IDLE = 'IDLE',
-  MOVING = 'MOVING',
-  ATTACKING = 'ATTACKING',   // 공격 활성 (히트박스 ON)
-  WINDUP = 'WINDUP',         // 공격 준비 (선딜)
-  RECOVERY = 'RECOVERY',     // 공격 후딜
+  NORMAL = 'NORMAL',
+  ATTACK_WINDUP = 'ATTACK_WINDUP',
+  ATTACK_ACTIVE = 'ATTACK_ACTIVE',
+  ATTACK_RECOVERY = 'ATTACK_RECOVERY',
   GUARDING = 'GUARDING',     // 방어
-  STUNNED = 'STUNNED',       // 피격 경직
+  HIT = 'HIT',               // 피격 경직
   DOWN = 'DOWN',             // 다운 (체력 0)
+  DISCONNECTED = 'DISCONNECTED',
+}
+
+export enum MatchResult {
+  PLAYING = 'PLAYING',
+  PLAYER_WIN = 'PLAYER_WIN',
+  PLAYER_LOSE = 'PLAYER_LOSE',
+  DRAW = 'DRAW',
 }
 
 // ─────────────────────────────────────────
 // 팀 링크 상태
 // ─────────────────────────────────────────
 export enum LinkState {
-  NORMAL = 'NORMAL',         // 팔짱 (기본, 최대 1.8m)
-  HOLD = 'HOLD',             // 손잡기 (Space, 최대 4m, 5초간)
-  STRETCHED = 'STRETCHED',   // 최대 거리 근접 상태 (시각 경고)
+  INVALID = 'INVALID',
+  ARM_LOCK = 'ARM_LOCK',     // 팔짱 (기본, 최대 1.8m)
+  HAND_HOLD = 'HAND_HOLD',   // 손잡기 (Space, 최대 4m, 5초간)
+  DOWN_DRAG = 'DOWN_DRAG',
+  BOTH_DOWN = 'BOTH_DOWN',
+}
+
+// 링크 상태와 별도로 계산하는 현재 거리/장력 상태
+export enum LinkTensionState {
+  RELAXED = 'RELAXED',
+  TENSION = 'TENSION',
+  LIMIT = 'LIMIT',
+  CORRECTING = 'CORRECTING',
 }
 
 // ─────────────────────────────────────────
 // 룸 상태
 // ─────────────────────────────────────────
 export enum RoomState {
-  LOBBY = 'LOBBY',
+  CREATED = 'CREATED',
+  WAITING = 'WAITING',
   READY = 'READY',
+  STARTING = 'STARTING',
   IN_GAME = 'IN_GAME',
-  ENDED = 'ENDED',
+  RESULT = 'RESULT',
+  CLOSED = 'CLOSED',
+}
+
+export enum AIState {
+  IDLE = 'IDLE',
+  APPROACH = 'APPROACH',
+  ATTACK_READY = 'ATTACK_READY',
+  WINDUP = 'WINDUP',
+  ACTIVE = 'ACTIVE',
+  RECOVERY = 'RECOVERY',
+  REPOSITION = 'REPOSITION',
+  ATTACK = 'ATTACK',
+  GUARD = 'GUARD',
+  RETREAT = 'RETREAT',
+  DRAG_ALLY = 'DRAG_ALLY',
+  DOWN = 'DOWN',
 }
 
 // ─────────────────────────────────────────

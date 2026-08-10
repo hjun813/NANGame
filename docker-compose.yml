@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # ─────────────────────────────────────────
   # Vite 클라이언트 개발 서버
@@ -17,6 +15,7 @@ services:
       - /app/client/node_modules
     environment:
       - VITE_SERVER_URL=ws://localhost:2567
+      - VITE_ENABLE_DEBUG_COMBAT_COMMANDS=false
     depends_on:
       - server
     networks:
@@ -28,7 +27,7 @@ services:
   server:
     build:
       context: .
-      dockerfile: server/Dockerfile
+      dockerfile: server/Dockerfile.dev
     container_name: lf-server
     ports:
       - '2567:2567'
@@ -39,6 +38,15 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=2567
+      - ENABLE_DEBUG_COMBAT_COMMANDS=false
+      - ENABLE_SPIKE_ROOM=false
+      - ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:2567/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
     networks:
       - lf-net
 

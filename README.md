@@ -29,6 +29,7 @@
 | `09_game_overview.md` | 게임 개요 |
 | `10_game_development_plan.md` | 개발 계획서 |
 | `11_game_rules.md` | 게임 전략 및 규칙 |
+| `12_network_sync_troubleshooting.md` | 전투 룸 위치·상태·초기화 동기화 이슈와 해결 기록 |
 
 ---
 
@@ -69,6 +70,8 @@
 | 실시간 통신 | WebSocket |
 | 빌드 도구 | Vite |
 | 배포 | 정적 웹 호스팅 + Node.js 서버 |
+
+외부 MVP 테스트 배포 절차는 [`docs/13_deployment_guide.md`](docs/13_deployment_guide.md)를 따른다.
 
 ---
 

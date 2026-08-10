@@ -5,11 +5,12 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
+    "test": "npm run build && node --test test/*.test.cjs",
     "start": "node dist/index.js"
   },
   "dependencies": {
     "colyseus": "^0.15.0",
-    "@colyseus/monitor": "^0.15.0",
+    "@colyseus/ws-transport": "^0.15.0",
     "express": "^4.19.2",
     "linked-fighters-shared": "file:../shared"
   },
